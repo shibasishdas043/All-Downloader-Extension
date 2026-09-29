@@ -1,0 +1,14 @@
+{
+  "extensionName": {
+    "message": "All-Downloader",
+    "description": "Name of the extension"
+  },
+  "extensionDescription": {
+    "message": "A secure, open-source download manager — intercept, chunk, schedule, and manage all your downloads.",
+    "description": "Description shown in extension store"
+  },
+  "contextMenuDownload": {
+    "message": "Download with All-Downloader",
+    "description": "Context menu item for downloading a link"
+  }
+}

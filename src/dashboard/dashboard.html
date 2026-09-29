@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>All-Downloader — Dashboard</title>
+  <meta name="description" content="All-Downloader Dashboard — manage, schedule, and monitor all your downloads." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="icon" type="image/png" sizes="128x128" href="../assets/icons/icon128.png" />
+  <link rel="icon" type="image/png" sizes="48x48" href="../assets/icons/icon48.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="../assets/icons/icon32.png" />
+  <link rel="icon" type="image/png" sizes="16x16" href="../assets/icons/icon16.png" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       SIDEBAR
+  ═══════════════════════════════════════════════════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-logo">
+        <img
+          id="brand-logo-img"
+          class="brand-logo-img"
+          src="../assets/icons/icon128.png"
+          srcset="../assets/icons/icon32.png 32w, ../assets/icons/icon48.png 48w, ../assets/icons/icon128.png 128w"
+          sizes="36px"
+          alt="All-Downloader"
+          width="36"
+          height="36"
+          loading="eager"
+          decoding="async"
+        />
+      </div>
+      <div class="brand-text">
+        <span class="brand-name">All-Downloader</span>
+        <span class="brand-version">v1.0.0</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <button class="nav-item active" data-view="downloads" id="nav-downloads">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2v13M7 11l5 5 5-5"/><path d="M3 18h18"/>
+        </svg>
+        <span>Downloads</span>
+        <span class="nav-badge" id="nav-badge-downloads">0</span>
+      </button>
+
+      <button class="nav-item" data-view="queue" id="nav-queue">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+          <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+        </svg>
+        <span>Queue</span>
+        <span class="nav-badge" id="nav-badge-queue" hidden>0</span>
+      </button>
+
+      <button class="nav-item" data-view="history" id="nav-history">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <polyline points="12,6 12,12 16,14"/>
+        </svg>
+        <span>History</span>
+      </button>
+
+      <button class="nav-item" data-view="stats" id="nav-stats">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+          <line x1="6" y1="20" x2="6" y2="14"/>
+        </svg>
+        <span>Statistics</span>
+      </button>
+
+      <button class="nav-item" data-view="settings" id="nav-settings">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/>
+          <path d="M12 2a10 10 0 0 1 7.07 2.93"/>
+        </svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-stats-mini">
+        <div class="mini-stat">
+          <div class="mini-stat-header">
+            <span class="mini-label">Total Speed</span>
+          </div>
+          <span class="mini-val" id="sidebar-total-speed">0 B/s</span>
+        </div>
+        <div class="mini-stat">
+          <div class="mini-stat-header">
+            <span class="mini-label">Active</span>
+            <span class="mini-indicator" id="sidebar-active-dot"></span>
+          </div>
+          <span class="mini-val" id="sidebar-active-count">0</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       MAIN CONTENT
+  ═══════════════════════════════════════════════════════════ -->
+  <main class="main-content">
+
+    <!-- ── Global Toolbar ──────────────────────────────────── -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title" id="page-title">Downloads</h1>
+        <span class="page-subtitle" id="page-subtitle">All active &amp; recent</span>
+      </div>
+      <div class="topbar-right">
+        <!-- Search -->
+        <div class="search-wrap">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="search-input" class="search-input" placeholder="Search downloads…" />
+        </div>
+        <!-- Add Download -->
+        <button class="btn-primary" id="btn-add-download">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add Download
+        </button>
+      </div>
+    </header>
+
+    <!-- ── Views ─────────────────────────────────────────────── -->
+
+    <!-- DOWNLOADS VIEW -->
+    <section class="view active" id="view-downloads">
+
+      <!-- Filter tabs -->
+      <div class="filter-tabs">
+        <button class="filter-tab active" data-filter="all">All</button>
+        <button class="filter-tab" data-filter="downloading">Active</button>
+        <button class="filter-tab" data-filter="queued">Queued</button>
+        <button class="filter-tab" data-filter="paused">Paused</button>
+        <button class="filter-tab" data-filter="completed">Completed</button>
+        <button class="filter-tab" data-filter="error">Failed</button>
+      </div>
+
+      <!-- Category chips -->
+      <div class="category-chips">
+        <button class="chip active" data-cat="all">All Types</button>
+        <button class="chip" data-cat="video">📹 Video</button>
+        <button class="chip" data-cat="audio">🎵 Audio</button>
+        <button class="chip" data-cat="document">📄 Docs</button>
+        <button class="chip" data-cat="archive">🗜️ Archives</button>
+        <button class="chip" data-cat="image">🖼️ Images</button>
+        <button class="chip" data-cat="application">⚙️ Apps</button>
+      </div>
+
+      <!-- Bulk actions bar -->
+      <div class="bulk-bar" id="bulk-bar" hidden>
+        <span id="bulk-count">0 selected</span>
+        <div class="bulk-actions">
+          <button class="bulk-btn" id="bulk-pause">Pause Selected</button>
+          <button class="bulk-btn" id="bulk-resume">Resume Selected</button>
+          <button class="bulk-btn danger" id="bulk-cancel">Cancel</button>
+          <button class="bulk-btn danger" id="bulk-delete">Delete</button>
+        </div>
+        <button class="icon-btn-sm" id="bulk-clear-sel">✕</button>
+      </div>
+
+      <!-- Downloads Table -->
+      <div class="table-wrap" id="table-wrap">
+        <table class="dl-table" id="dl-table">
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="select-all" /></th>
+              <th class="col-file sortable" data-sort="filename">File <span class="sort-arrow">↕</span></th>
+              <th class="col-size sortable" data-sort="total">Size <span class="sort-arrow">↕</span></th>
+              <th class="col-progress sortable" data-sort="percent">Progress <span class="sort-arrow">↕</span></th>
+              <th class="col-speed sortable" data-sort="speed">Speed <span class="sort-arrow">↕</span></th>
+              <th class="col-eta">ETA</th>
+              <th class="col-status sortable" data-sort="state">Status <span class="sort-arrow">↕</span></th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dl-tbody">
+            <!-- Rows injected by JS -->
+          </tbody>
+        </table>
+        <div class="table-empty" id="table-empty" hidden>
+          <div class="empty-illus">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2">
+              <path d="M12 2v13M7 11l5 5 5-5"/><path d="M3 18h18"/>
+            </svg>
+          </div>
+          <p>No downloads found</p>
+          <span>Try a different filter or add a new download</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- QUEUE VIEW -->
+    <section class="view" id="view-queue">
+      <div class="queue-layout">
+        <div class="queue-top-card">
+          <div class="queue-top-left">
+            <div class="queue-icon-badge">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+                <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+              </svg>
+            </div>
+            <div>
+              <h2 class="queue-heading">Queue Manager</h2>
+              <p class="queue-subheading">Manage download sequence, priority order, and automatic concurrency limits.</p>
+            </div>
+          </div>
+          <div class="queue-concurrency-control">
+            <div class="qc-meta">
+              <span class="qc-title">Concurrency Limit</span>
+              <span class="range-val" id="q-max-val">—</span>
+            </div>
+            <div class="range-row">
+              <input type="range" id="q-max-concurrent" min="1" max="10" class="range-slider" />
+            </div>
+          </div>
+        </div>
+
+        <div class="queue-content-wrap">
+          <div class="queue-section-header">
+            <span class="queue-section-title">Queue Execution Pipeline</span>
+            <span class="queue-section-badge" id="q-badge">0 in pipeline</span>
+          </div>
+          <div class="queue-list" id="queue-list">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- HISTORY VIEW -->
+    <section class="view" id="view-history">
+      <div class="history-header">
+        <div>
+          <h2>Download History</h2>
+          <p class="history-subtitle">Archived ledger of completed and cancelled download activity</p>
+        </div>
+        <button class="btn-danger-sm" id="btn-clear-history">Clear History</button>
+      </div>
+      <div class="table-wrap">
+        <table class="dl-table" id="history-table">
+          <thead>
+            <tr>
+              <th class="col-hist-file sortable-hist" data-sort="file">File <span class="sort-arrow">↕</span></th>
+              <th class="col-hist-size sortable-hist" data-sort="size">Size <span class="sort-arrow">↕</span></th>
+              <th class="col-hist-cat sortable-hist" data-sort="category">Category <span class="sort-arrow">↕</span></th>
+              <th class="col-hist-time sortable-hist active-sort" data-sort="time">Completed <span class="sort-arrow">↓</span></th>
+              <th class="col-hist-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="history-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- STATS VIEW -->
+    <section class="view" id="view-stats">
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </div>
+          <div class="stat-val" id="stat-total-files">0</div>
+          <div class="stat-label">Total Files Downloaded</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          </div>
+          <div class="stat-val" id="stat-total-size">0 B</div>
+          <div class="stat-label">Total Data Downloaded</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          </div>
+          <div class="stat-val" id="stat-avg-speed">0 B/s</div>
+          <div class="stat-label">Avg. Download Speed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div class="stat-val" id="stat-total-time">0m</div>
+          <div class="stat-label">Total Download Time</div>
+        </div>
+      </div>
+
+      <div class="chart-section">
+        <div class="chart-section-header">
+          <div>
+            <h3 class="section-title">Category Breakdown</h3>
+            <p class="chart-subtitle" id="chart-sub">Volume and distribution across file categories</p>
+          </div>
+          <span class="chart-badge" id="chart-total-badge">0 categories</span>
+        </div>
+        <div class="cat-distribution-bar" id="cat-distribution-bar" hidden></div>
+        <div class="cat-pills-wrap" id="cat-pills-wrap" hidden></div>
+        <div class="chart-canvas-wrap" id="chart-canvas-wrap" hidden>
+          <canvas id="chart-category"></canvas>
+        </div>
+        <div class="chart-empty-state" id="chart-empty-state">
+          <div class="chart-empty-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="20" x2="18" y2="10"/>
+              <line x1="12" y1="20" x2="12" y2="4"/>
+              <line x1="6" y1="20" x2="6" y2="14"/>
+            </svg>
+          </div>
+          <p class="chart-empty-title">No download activity recorded yet</p>
+          <span class="chart-empty-sub">Completed downloads will be automatically categorized and charted here.</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- SETTINGS VIEW -->
+    <section class="view" id="view-settings">
+      <div class="settings-grid">
+
+        <div class="settings-group">
+          <h3 class="group-title">Download Behavior</h3>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Intercept Browser Downloads</span>
+              <span class="setting-desc">Automatically take over downloads from the browser</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle" id="toggle-intercept">
+                <input type="checkbox" id="setting-intercept" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Auto-start Downloads</span>
+              <span class="setting-desc">Start downloads immediately when added</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input type="checkbox" id="setting-autostart" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Max Concurrent Downloads</span>
+              <span class="setting-desc">Maximum number of simultaneous downloads</span>
+            </div>
+            <div class="setting-control">
+              <div class="range-row">
+                <input type="range" id="setting-max-concurrent" min="1" max="10" class="range-slider"/>
+                <span class="range-val" id="val-max-concurrent">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Max Chunks per File</span>
+              <span class="setting-desc">Number of parallel segments for chunked downloads</span>
+            </div>
+            <div class="setting-control">
+              <div class="range-row">
+                <input type="range" id="setting-max-chunks" min="1" max="16" class="range-slider"/>
+                <span class="range-val" id="val-max-chunks">—</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Speed Limit (KB/s)</span>
+              <span class="setting-desc">0 = unlimited</span>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="setting-speed-limit" class="text-input-sm" min="0" placeholder="0" />
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3 class="group-title">Security & Integrity</h3>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Verify File Integrity (SHA-256)</span>
+              <span class="setting-desc">Check hash after download when server provides it</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input type="checkbox" id="setting-verify-integrity" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3 class="group-title">Notifications</h3>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Desktop Notifications</span>
+              <span class="setting-desc">Show system notification on download complete</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input type="checkbox" id="setting-notifications" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group">
+          <h3 class="group-title">Data Management</h3>
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Max History Items</span>
+              <span class="setting-desc">Maximum completed downloads to keep in history</span>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="setting-max-history" class="text-input-sm" min="10" max="9999" placeholder="500" />
+            </div>
+          </div>
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Danger Zone</span>
+              <span class="setting-desc">Permanently clear all history and reset stats</span>
+            </div>
+            <div class="setting-control">
+              <button class="btn-danger-sm" id="btn-reset-all">Reset All Data</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-save-bar">
+          <div class="save-bar-left">
+            <button class="btn-primary" id="btn-save-settings">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                <polyline points="17 21 17 13 7 13 7 21"/>
+                <polyline points="7 3 7 8 15 8"/>
+              </svg>
+              <span>Save Settings</span>
+            </button>
+            <span class="save-status" id="save-status"></span>
+          </div>
+          <span class="save-bar-hint">Changes apply immediately to background downloader</span>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ADD DOWNLOAD MODAL
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="modal-add" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Add New Download</h2>
+        <button class="icon-btn-sm" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="form-label">Download URL <span class="required">*</span></label>
+        <input type="url" id="dash-url-input" class="form-input" placeholder="https://example.com/file.zip" autocomplete="off" />
+
+        <label class="form-label">Save As (filename)</label>
+        <input type="text" id="dash-filename-input" class="form-input" placeholder="Optional — auto-detected from URL" />
+
+        <label class="form-label">Schedule Start</label>
+        <input type="datetime-local" id="dash-schedule-input" class="form-input" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="dash-modal-cancel">Cancel</button>
+        <button class="btn-primary" id="dash-btn-start">Start Download</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="dashboard.js" type="module"></script>
+</body>
+</html>

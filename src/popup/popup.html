@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>All-Downloader</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════════
+       HEADER
+  ══════════════════════════════════════════════════ -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="brand-icon">
+        <img
+          id="popup-brand-icon-img"
+          class="brand-icon-img"
+          src="../assets/icons/icon128.png"
+          srcset="../assets/icons/icon32.png 32w, ../assets/icons/icon48.png 48w, ../assets/icons/icon128.png 128w"
+          sizes="32px"
+          alt="All-Downloader"
+          width="32"
+          height="32"
+          loading="eager"
+          decoding="async"
+        />
+      </div>
+      <span class="brand-name">All-Downloader</span>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="btn-add" title="Add URL">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+      </button>
+      <button class="icon-btn" id="btn-dashboard" title="Open Dashboard">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
+          <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════════════════════════
+       STATUS BAR
+  ══════════════════════════════════════════════════ -->
+  <div class="status-bar">
+    <span id="status-active">0 active</span>
+    <span class="dot"></span>
+    <span id="status-speed">0 B/s</span>
+    <span class="status-bar-right">
+      <span id="status-queue">Queue: 0</span>
+    </span>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       DOWNLOAD LIST
+  ══════════════════════════════════════════════════ -->
+  <main class="download-list" id="download-list">
+    <!-- Populated by popup.js -->
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 2v13M7 11l5 5 5-5"/>
+          <path d="M3 18h18"/>
+        </svg>
+      </div>
+      <p class="empty-title">No active downloads</p>
+      <p class="empty-sub">Click + to add a URL or browse the web</p>
+    </div>
+  </main>
+
+  <!-- ═══════════════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════════════════ -->
+  <footer class="footer">
+    <button class="footer-btn" id="btn-pause-all">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+      </svg>
+      Pause All
+    </button>
+    <button class="footer-btn" id="btn-view-all">
+      View All
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <path d="M9 18l6-6-6-6"/>
+      </svg>
+    </button>
+  </footer>
+
+  <!-- ═══════════════════════════════════════════════
+       ADD URL MODAL
+  ══════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="modal-add" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <span>Add Download URL</span>
+        <button class="icon-btn" id="modal-close">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <input type="url" id="url-input" placeholder="https://example.com/file.zip" autocomplete="off" spellcheck="false"/>
+        <input type="text" id="filename-input" placeholder="Filename (optional)" autocomplete="off"/>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" id="btn-start-download">Start Download</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Download item template (cloned by JS) -->
+  <template id="tmpl-download-item">
+    <div class="dl-item" data-id="">
+      <div class="dl-item-top">
+        <div class="dl-icon-wrap">
+          <span class="dl-ext-badge">?</span>
+        </div>
+        <div class="dl-info">
+          <span class="dl-name"></span>
+          <span class="dl-meta"></span>
+        </div>
+        <div class="dl-controls">
+          <button class="ctrl-btn ctrl-pause" title="Pause">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+            </svg>
+          </button>
+          <button class="ctrl-btn ctrl-resume hidden" title="Resume">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5,3 19,12 5,21"/>
+            </svg>
+          </button>
+          <button class="ctrl-btn ctrl-cancel" title="Cancel">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="dl-progress-wrap">
+        <div class="dl-progress-track">
+          <div class="dl-progress-fill"></div>
+          <div class="dl-progress-shimmer"></div>
+        </div>
+        <div class="dl-progress-labels">
+          <span class="dl-speed"></span>
+          <div class="dl-progress-right">
+            <span class="dl-percent"></span>
+            <span class="dl-eta"></span>
+          </div>
+        </div>
+      </div>
+      <div class="dl-state-badge"></div>
+    </div>
+  </template>
+
+  <script src="popup.js" type="module"></script>
+</body>
+</html>
