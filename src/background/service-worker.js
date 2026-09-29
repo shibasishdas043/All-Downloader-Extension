@@ -448,27 +448,62 @@ function _sanitizeFilename(name) {
  * it is intentionally sandboxed for security.
  *
  * Rules:
- *  - If defaultSavePath is empty → save directly as `filename` in Downloads root.
- *  - If defaultSavePath is set   → save as `<sub-folder>/<filename>` inside Downloads.
+ *  - If defaultSavePath is empty / whitespace → save directly as `filename`
+ *    in the Downloads root.
+ *  - If defaultSavePath is set → save as `<sub-folder>/<filename>` inside
+ *    the Downloads root.
  *  - Forward slashes only (Chrome normalises them on Windows automatically).
  *  - No leading slash allowed.
  *
- * @param {string} subFolder   settings.defaultSavePath (may be empty)
+ * @param {string} subFolder   settings.defaultSavePath (may be empty/whitespace)
  * @param {string} filename    Already-sanitized filename
  * @returns {string}           Relative path for chrome.downloads.download
  */
 function _buildSavePath(subFolder, filename) {
-  if (!subFolder || typeof subFolder !== 'string') return filename;
+  // Treat null / non-string / whitespace-only as "no sub-folder"
+  if (!subFolder || typeof subFolder !== 'string' || !subFolder.trim()) {
+    return filename;
+  }
 
-  // Sanitize the sub-folder: strip illegal chars, no absolute paths
+  // Sanitize the sub-folder: strip illegal chars, no absolute paths.
+  // We use a dedicated folder sanitizer that returns '' for blank segments
+  // (not 'download' like _sanitizeFilename does for file names).
   const cleanFolder = subFolder
-    .replace(/\\/g, '/')           // normalise backslashes
-    .replace(/^\/+/, '')           // no leading slash
-    .replace(/\/+$/, '')           // no trailing slash
+    .replace(/\\/g, '/')           // normalise backslashes to forward slashes
+    .replace(/^\/+/, '')           // strip any leading slash (no absolute path)
+    .replace(/\/+$/, '')           // strip trailing slash
     .split('/')
-    .map(seg => _sanitizeFilename(seg))
-    .filter(Boolean)
+    .map(seg => _sanitizeFolderSegment(seg))
+    .filter(Boolean)               // drop empty/blank segments
     .join('/');
 
   return cleanFolder ? `${cleanFolder}/${filename}` : filename;
+}
+
+/**
+ * Sanitize a single folder path segment.
+ * Unlike _sanitizeFilename, returns '' for blank input (not 'download').
+ * @param {string} seg
+ * @returns {string}
+ */
+function _sanitizeFolderSegment(seg) {
+  if (!seg || typeof seg !== 'string') return '';
+
+  let safe = seg
+    .replace(/\0/g, '')
+    .replace(/[\\/:*?"<>|]/g, '_')
+    .replace(/[\x00-\x1f]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Reject purely-dot segments (e.g. ".." path traversal attempt)
+  if (/^\.+$/.test(safe)) return '';
+
+  // Reject Windows reserved device names
+  if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i.test(safe)) return '';
+
+  // Truncate very long folder names
+  if (safe.length > 100) safe = safe.slice(0, 100);
+
+  return safe;
 }
