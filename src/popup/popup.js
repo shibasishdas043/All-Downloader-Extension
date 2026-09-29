@@ -214,7 +214,7 @@ function populateItem(el, dl) {
     etaEl.textContent   = '';
   }
 
-  el.querySelector('.dl-state-badge').textContent = stateBadgeLabels[dl.state] || '';
+
 
   // Speed class
   speedEl.classList.toggle('fast', dl.speed > 1024 * 1024); // > 1 MB/s
