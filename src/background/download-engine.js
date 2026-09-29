@@ -112,7 +112,7 @@ export async function startDownload(download, settings, onProgress, onComplete, 
       tracker.getSnapshot(),
     );
 
-    onComplete(download.id, blob, filename);
+    await onComplete(download.id, blob, filename);
 
   } catch (err) {
     _registry.delete(download.id);

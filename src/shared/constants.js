@@ -65,6 +65,7 @@ export const MSG = Object.freeze({
   MOVE_QUEUE_ITEM:     'MOVE_QUEUE_ITEM',
   START_QUEUED_NOW:    'START_QUEUED_NOW',
   CLEAR_QUEUE:         'CLEAR_QUEUE',
+  SHOW_IN_FOLDER:      'SHOW_IN_FOLDER',
 });
 
 // ── Storage Keys ─────────────────────────────────────────────

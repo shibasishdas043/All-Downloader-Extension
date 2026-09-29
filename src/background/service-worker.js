@@ -25,6 +25,13 @@ let settings = { ...DEFAULT_SETTINGS };
 /** @type {Map<string, object>} In-memory download state cache */
 const downloadCache = new Map();
 
+/**
+ * Set of blob: URLs that this extension created for its own file-save step.
+ * We track them here so that chrome.downloads.onCreated can skip re-intercepting
+ * a download that we ourselves initiated (prevents the double-download bug).
+ */
+const _ownBlobUrls = new Set();
+
 const queue = new QueueManager({
   maxConcurrent: settings.maxConcurrent,
   onDequeue: (downloadId) => _executeDownload(downloadId),
@@ -45,6 +52,10 @@ chrome.runtime.onInstalled.addListener(async () => {
 self.addEventListener('activate', async () => {
   settings = await loadSettings();
   queue.setMaxConcurrent(settings.maxConcurrent);
+  // Restore/clean up any downloads stuck in-progress when the SW was killed.
+  await _restoreInProgressDownloads();
+  // Sync badge with current active download count.
+  _updateBadge();
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -54,12 +65,34 @@ self.addEventListener('activate', async () => {
 chrome.downloads.onCreated.addListener(async (item) => {
   if (!settings.interceptDownloads) return;
 
-  // Do NOT intercept internal extension blob downloads or data URLs
-  if (!item.url || item.url.startsWith('blob:') || item.url.startsWith('data:')) {
+  // ── Skip downloads we ourselves initiated ─────────────────────
+  // Our file-save step creates a blob: URL and calls chrome.downloads.download.
+  // That triggers onCreated again — we must not intercept our own blobs or we
+  // get an infinite loop / double-download.
+  if (!item.url) return;
+  if (_ownBlobUrls.has(item.url)) {
+    _ownBlobUrls.delete(item.url); // one-shot: clean up after first use
     return;
   }
 
-  // Cancel the native download so we take over
+  // ── Skip raw blob: / data: URLs (inline content, not remote files) ─
+  if (item.url.startsWith('blob:') || item.url.startsWith('data:')) return;
+
+  // ── Skip "Save image as…" / "Save as" user-dialog downloads ───────
+  // When the user clicks the browser's native "Save image as…" and confirms
+  // the save dialog, Chrome fires onCreated with:
+  //   • item.byExtensionId  — undefined  (not from an extension)
+  //   • item.filename       — the full OS path the user chose in the dialog
+  // We detect this by checking for a non-empty absolute path in item.filename.
+  // An extension-initiated download either has no filename yet (empty string)
+  // or a relative path; only native Save-As dialogs produce an absolute path
+  // at creation time.
+  if (item.filename && (item.filename.startsWith('/') || /^[A-Za-z]:[/\\]/.test(item.filename))) {
+    // This was a user-chosen Save As — let the browser handle it normally.
+    return;
+  }
+
+  // ── Take over the download ─────────────────────────────────────
   chrome.downloads.cancel(item.id, () => {
     chrome.downloads.erase({ id: item.id });
   });
@@ -79,7 +112,7 @@ function _setupContextMenu() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id:       'adl-download-link',
-      title:    'Download with All Downloader',
+      title:    'Download with All Downloader',   // no hyphen — matches brand name
       contexts: ['link', 'image', 'video', 'audio'],
     });
     chrome.contextMenus.create({
@@ -231,6 +264,27 @@ async function _handleMessage(msg) {
       return { ok: true };
     }
 
+    case MSG.SHOW_IN_FOLDER: {
+      const dl = await getDownload(msg.id);
+      if (!dl) return { ok: false };
+      // Search Chrome's download history for the most recent entry matching
+      // this filename, then call show() to reveal it in the OS file explorer.
+      const filename = dl.filename || '';
+      chrome.downloads.search(
+        { filenameRegex: _escapeRegex(filename) + '$', limit: 1, orderBy: ['-startTime'] },
+        (results) => {
+          if (results && results.length > 0) {
+            chrome.downloads.show(results[0].id);
+          } else {
+            // Fallback: open the extension's default save folder via the
+            // downloads page so the user can at least navigate from there.
+            chrome.tabs.create({ url: 'chrome://downloads' });
+          }
+        },
+      );
+      return { ok: true };
+    }
+
     default:
       return { ok: false, error: `Unknown message type: ${msg.type}` };
   }
@@ -268,6 +322,8 @@ async function _addDownload({ url, filename, referrer = '', scheduledAt = null }
   downloadCache.set(id, download);
 
   _broadcast({ type: MSG.DOWNLOAD_ADDED, download });
+  _updateBadge();
+  _autoOpenPopup();   // show the popup briefly so the user sees the new download
 
   if (settings.autoStart) {
     queue.enqueue(id, scheduledAt);
@@ -300,55 +356,69 @@ async function _executeDownload(downloadId) {
     },
     // onComplete
     async (id, blob, finalFilename) => {
-      await _updateState(id, DOWNLOAD_STATE.MERGING);
+      // NOTE: onComplete is called without await from download-engine.js, so any
+      // error after the first `await` must be caught here — not by the engine.
+      try {
+        await _updateState(id, DOWNLOAD_STATE.MERGING);
 
-      // ── Save the assembled file ───────────────────────────────
-      // chrome.downloads.download filename is a path RELATIVE to the
-      // browser's own default download directory (set by the user in
-      // Chrome / Edge / Brave / Opera / Firefox settings).
-      // We MUST NOT use an absolute path — browsers will reject it.
-      // To use a sub-folder, we prepend a relative folder name only.
-      const safeFilename = _sanitizeFilename(finalFilename);
-      const savePath     = _buildSavePath(settings.defaultSavePath, safeFilename);
+        const safeFilename = _sanitizeFilename(finalFilename);
+        const savePath     = _buildSavePath(settings.defaultSavePath, safeFilename);
 
-      const blobUrl = URL.createObjectURL(blob);
-      chrome.downloads.download(
-        {
-          url:            blobUrl,
-          filename:       savePath,        // relative path inside Downloads dir
-          saveAs:         false,           // honour user's browser default — no dialog
-          conflictAction: 'uniquify',      // auto-rename if file already exists
-        },
-        (_dlId) => {
-          // Revoke after Chrome has consumed the blob URL.
-          if (chrome.runtime.lastError) {
-            console.error('[ADL] save error:', chrome.runtime.lastError.message);
-          }
-          URL.revokeObjectURL(blobUrl);
-        },
-      );
+        // Convert blob to data URL — URL.createObjectURL() is not available in
+        // MV3 service workers. Data URLs are already excluded from re-interception
+        // (item.url.startsWith('data:') in onCreated), so no double-download risk.
+        const dataUrl = await _blobToDataUrl(blob);
 
-      const completedAt = Date.now();
-      const dl = await getDownload(id);
-      await _updateState(id, DOWNLOAD_STATE.COMPLETED, {
-        completedAt,
-        percent: 100,
-        speed:   0,
-        eta:     null,
-      });
+        // Let Chrome handle file-name conflicts with its built-in 'uniquify':
+        // it appends " (1)", " (2)" etc. automatically and reliably.
+        // Our previous approach used chrome.downloads.search() whose callback
+        // sometimes never fired (especially during concurrent downloads), leaving
+        // the state stuck at MERGING forever.
+        chrome.downloads.download(
+          {
+            url:            dataUrl,
+            filename:       savePath,
+            saveAs:         false,
+            conflictAction: 'uniquify',
+          },
+          (_dlId) => {
+            if (chrome.runtime.lastError) {
+              console.error('[ADL] save error:', chrome.runtime.lastError.message);
+            }
+          },
+        );
 
-      await recordCompletion(blob.size, completedAt - (dl.startedAt || completedAt));
-      queue.markDone(id);
-
-      _broadcast({ type: MSG.DOWNLOAD_COMPLETED, id });
-
-      if (settings.showNotifications) {
-        chrome.notifications.create({
-          type:    'basic',
-          iconUrl: chrome.runtime.getURL('src/assets/icons/icon48.png'),
-          title:   'Download Complete',
-          message: finalFilename,
+        // Write COMPLETED immediately — don't wait for the download() callback.
+        const completedAt = Date.now();
+        const dlRecord    = await getDownload(id);
+        await _updateState(id, DOWNLOAD_STATE.COMPLETED, {
+          completedAt,
+          percent:  100,
+          speed:    0,
+          eta:      null,
+          filename: safeFilename,
         });
+
+        await recordCompletion(blob.size, completedAt - (dlRecord?.startedAt || completedAt));
+        queue.markDone(id);
+        _broadcast({ type: MSG.DOWNLOAD_COMPLETED, id });
+
+        if (settings.showNotifications) {
+          chrome.notifications.create({
+            type:    'basic',
+            iconUrl: chrome.runtime.getURL('src/assets/icons/icon48.png'),
+            title:   'Download Complete',
+            message: safeFilename,
+          });
+        }
+
+      } catch (err) {
+        console.error('[ADL] onComplete error:', err);
+        await _updateState(id, DOWNLOAD_STATE.ERROR, {
+          error: `Save failed: ${err.message || 'Unknown error'} — click Retry`,
+        });
+        queue.markDone(id);
+        _broadcast({ type: MSG.DOWNLOAD_ERROR, id, error: err.message });
       }
     },
     // onError
@@ -369,6 +439,7 @@ async function _updateState(id, state, extra = {}) {
   const updated = { ...dl, id, state, ...extra };
   downloadCache.set(id, updated);
   await upsertDownload(updated);
+  _updateBadge();   // keep badge in sync on every state transition
   return updated;
 }
 
@@ -378,14 +449,75 @@ function _broadcast(payload) {
   });
 }
 
+// ─────────────────────────────────────────────────────────────
+//  Badge + auto-popup helpers
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Update the extension icon badge to show the number of in-progress downloads.
+ * Shows a blue badge with the count while downloads are active; clears when idle.
+ */
+function _updateBadge() {
+  const ACTIVE_STATES = [
+    DOWNLOAD_STATE.QUEUED,
+    DOWNLOAD_STATE.CONNECTING,
+    DOWNLOAD_STATE.DOWNLOADING,
+    DOWNLOAD_STATE.PAUSED,
+    DOWNLOAD_STATE.MERGING,
+    DOWNLOAD_STATE.VERIFYING,
+  ];
+
+  const activeCount = [...downloadCache.values()].filter(
+    dl => ACTIVE_STATES.includes(dl.state)
+  ).length;
+
+  if (activeCount > 0) {
+    chrome.action.setBadgeBackgroundColor({ color: '#219ebc' });
+    chrome.action.setBadgeText({ text: String(activeCount) });
+  } else {
+    chrome.action.setBadgeText({ text: '' });
+  }
+}
+
+/**
+ * Programmatically open the extension popup for 3 seconds when a download
+ * starts, so the user can see it without having to click the icon.
+ *
+ * Uses chrome.action.openPopup() (Chrome 127+).  Sets a session-storage flag
+ * so popup.js knows it was auto-opened and should auto-close after 3s.
+ */
+function _autoOpenPopup() {
+  // Mark popup as auto-opened so popup.js can start the auto-close timer.
+  chrome.storage.session.set({ adl_autoOpened: true }).then(() => {
+    if (typeof chrome.action.openPopup === 'function') {
+      chrome.action.openPopup().catch(() => {
+        // openPopup() can fail if no window is focused — silently ignore.
+        chrome.storage.session.remove('adl_autoOpened');
+      });
+    } else {
+      // Chrome < 127: openPopup not available — just keep the badge visible.
+      chrome.storage.session.remove('adl_autoOpened');
+    }
+  });
+}
+
 async function _restoreInProgressDownloads() {
   const all = await loadDownloads();
   for (const dl of Object.values(all)) {
     downloadCache.set(dl.id, dl);
-    // Re-queue anything that was active when SW was killed
+
     if ([DOWNLOAD_STATE.DOWNLOADING, DOWNLOAD_STATE.CONNECTING, DOWNLOAD_STATE.QUEUED].includes(dl.state)) {
+      // Re-queue anything that was mid-download when the SW was killed
       await _updateState(dl.id, DOWNLOAD_STATE.QUEUED, { speed: 0, eta: null });
       queue.enqueue(dl.id);
+    } else if ([DOWNLOAD_STATE.MERGING, DOWNLOAD_STATE.VERIFYING].includes(dl.state)) {
+      // MERGING / VERIFYING can't be resumed — the blob was already assembled in
+      // the previous SW lifetime but we have no reference to it now.
+      // Mark as ERROR so the user can retry, instead of leaving it stuck forever.
+      await _updateState(dl.id, DOWNLOAD_STATE.ERROR, {
+        error: 'Interrupted during merge — click Retry to re-download.',
+      });
+      _broadcast({ type: MSG.DOWNLOAD_ERROR, id: dl.id, error: 'Interrupted during merge — click Retry to re-download.' });
     }
   }
 }
@@ -399,6 +531,40 @@ function _openDashboard() {
       chrome.tabs.create({ url });
     }
   });
+}
+
+
+// ─────────────────────────────────────────────────────────────
+//  Blob → data URL  (works in MV3 service workers)
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Convert a Blob to a base64-encoded data URL.
+ *
+ * Why: URL.createObjectURL() requires a browsing context (window / document)
+ * and is NOT available in Manifest V3 service workers.  A data URL is the
+ * correct alternative — chrome.downloads.download() accepts both.
+ *
+ * Memory note: the file is already held in RAM as a Blob by the download
+ * engine, so the extra ~33 % for base64 is the only additional cost.
+ *
+ * @param {Blob} blob
+ * @returns {Promise<string>}  e.g. "data:image/jpeg;base64,/9j/4AAQ..."
+ */
+async function _blobToDataUrl(blob) {
+  const buffer   = await blob.arrayBuffer();
+  const uint8    = new Uint8Array(buffer);
+  const mimeType = blob.type || 'application/octet-stream';
+
+  // Convert to binary string in 8 KiB chunks to avoid stack-overflow on
+  // large files when using Function.apply with a big array.
+  let binary = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < uint8.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, uint8.subarray(i, i + CHUNK));
+  }
+
+  return `data:${mimeType};base64,${btoa(binary)}`;
 }
 
 // ─────────────────────────────────────────────────────────────

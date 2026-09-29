@@ -1,6 +1,6 @@
 {
   "extensionName": {
-    "message": "All-Downloader",
+    "message": "All Downloader",
     "description": "Name of the extension"
   },
   "extensionDescription": {
@@ -8,7 +8,7 @@
     "description": "Description shown in extension store"
   },
   "contextMenuDownload": {
-    "message": "Download with All-Downloader",
+    "message": "Download with All Downloader",
     "description": "Context menu item for downloading a link"
   }
 }
