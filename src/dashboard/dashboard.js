@@ -1383,6 +1383,8 @@ async function bulkAction(msgType) {
   }
   updateSelectAllCheckbox();
   updateBulkBar();
+  updateSidebarStats();
+  updateBadges();
   renderDownloadsTable();
 }
 
@@ -1422,7 +1424,15 @@ function updateBadges() {
 // ─────────────────────────────────────────────────────────────
 async function act(type, id) {
   await sendMsg({ type, id });
-  if (type === MSG.DELETE_DOWNLOAD) { delete downloads[id]; renderDownloadsTable(); }
+  if (type === MSG.DELETE_DOWNLOAD) {
+    delete downloads[id];
+    selected.delete(id);
+    updateSelectAllCheckbox();
+    updateBulkBar();
+    updateSidebarStats();
+    updateBadges();
+    renderDownloadsTable();
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

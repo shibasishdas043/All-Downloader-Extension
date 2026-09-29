@@ -206,6 +206,7 @@ async function _handleMessage(msg) {
     case MSG.DELETE_DOWNLOAD: {
       await cancelDownload(msg.id);
       await deleteDownload(msg.id);
+      queue.remove(msg.id);
       downloadCache.delete(msg.id);
       return { ok: true };
     }
