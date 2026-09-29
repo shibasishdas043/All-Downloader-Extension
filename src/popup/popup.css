@@ -384,6 +384,11 @@ body {
   color: var(--text-on-dark);
 }
 
+.ctrl-remove:hover {
+  background: #e03131;
+  color: #ffffff;
+}
+
 .hidden {
   display: none !important;
 }

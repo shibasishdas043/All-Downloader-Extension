@@ -142,7 +142,7 @@ function appendItem(dl) {
   // Wire control buttons
   el.querySelector('.ctrl-pause').addEventListener('click', () => pauseDl(dl.id));
   el.querySelector('.ctrl-resume').addEventListener('click', () => resumeDl(dl.id));
-  el.querySelector('.ctrl-cancel').addEventListener('click', () => cancelDl(dl.id));
+  el.querySelector('.ctrl-cancel').addEventListener('click', () => handleCancelOrRemove(dl.id));
 
   $list.insertBefore(node, $list.firstChild);
   populateItem(el, dl);
@@ -212,10 +212,20 @@ function populateItem(el, dl) {
   el.querySelector('.ctrl-pause').classList.toggle('hidden', !isActive);
   el.querySelector('.ctrl-resume').classList.toggle('hidden', !isPaused);
 
-  // Disable cancel for terminal states
-  const isTerminal = [DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.CANCELLED].includes(dl.state);
-  el.querySelector('.ctrl-cancel').style.opacity = isTerminal ? '0.3' : '1';
-  el.querySelector('.ctrl-cancel').style.pointerEvents = isTerminal ? 'none' : 'auto';
+  // Cancel or Remove button
+  const isRemovable = [DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.CANCELLED, DOWNLOAD_STATE.ERROR].includes(dl.state);
+  const cancelBtn = el.querySelector('.ctrl-cancel');
+  cancelBtn.style.opacity = '1';
+  cancelBtn.style.pointerEvents = 'auto';
+  if (isRemovable) {
+    cancelBtn.title = 'Remove from list';
+    cancelBtn.classList.add('ctrl-remove');
+    cancelBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`;
+  } else {
+    cancelBtn.title = 'Cancel download';
+    cancelBtn.classList.remove('ctrl-remove');
+    cancelBtn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+  }
 }
 
 function updateStatusBar() {
@@ -244,6 +254,28 @@ async function resumeDl(id) {
 
 async function cancelDl(id) {
   await sendMsg({ type: MSG.CANCEL_DOWNLOAD, id });
+}
+
+async function deleteDl(id) {
+  delete downloads[id];
+  document.querySelector(`.dl-item[data-id="${id}"]`)?.remove();
+  const remaining = Object.values(downloads)
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, UI.POPUP_MAX_VISIBLE);
+  $empty.style.display = remaining.length === 0 ? 'flex' : 'none';
+  updateStatusBar();
+  await sendMsg({ type: MSG.DELETE_DOWNLOAD, id });
+}
+
+async function handleCancelOrRemove(id) {
+  const dl = downloads[id];
+  if (!dl) return;
+  const isRemovable = [DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.CANCELLED, DOWNLOAD_STATE.ERROR].includes(dl.state);
+  if (isRemovable) {
+    await deleteDl(id);
+  } else {
+    await cancelDl(id);
+  }
 }
 
 async function pauseAll() {
