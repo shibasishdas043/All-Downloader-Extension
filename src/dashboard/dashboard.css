@@ -947,28 +947,28 @@ th.col-actions {
 }
 
 .status-badge.completed {
-  background: var(--geist-ink);
-  color: var(--text-on-dark);
+  background: #1a7a4a;
+  color: #fff;
 }
 
 .status-badge.queued {
-  background: var(--bg-pill);
-  color: var(--text-muted);
-}
-
-.status-badge.paused {
-  background: var(--bg-pill);
+  background: rgba(33, 37, 41, 0.14);
   color: var(--text-primary);
 }
 
+.status-badge.paused {
+  background: #5a4500;
+  color: #fff;
+}
+
 .status-badge.error {
-  background: rgba(33, 37, 41, 0.08);
-  color: var(--geist-ink);
+  background: #b91c1c;
+  color: #fff;
 }
 
 .status-badge.cancelled {
-  background: var(--bg-pill);
-  color: var(--text-muted);
+  background: rgba(33, 37, 41, 0.18);
+  color: var(--text-primary);
 }
 
 .status-badge.connecting {
@@ -1018,8 +1018,8 @@ th.col-actions {
 }
 
 .row-btn.danger:hover {
-  background: var(--geist-ink);
-  color: var(--text-on-dark);
+  background: #b91c1c;
+  color: #fff;
 }
 
 .row-btn.danger:active {
@@ -1062,7 +1062,16 @@ th.col-actions {
   letter-spacing: -0.3px;
 }
 
-.table-empty span {
+.empty-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  letter-spacing: -0.3px;
+}
+
+.table-empty span,
+.empty-sub {
   font-size: 12px;
   color: var(--text-muted);
 }

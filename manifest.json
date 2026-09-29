@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "All-Downloader",
+  "name": "All Downloader",
   "version": "1.0.0",
   "description": "A secure, open-source download manager extension — intercept, chunk, schedule, and manage all your downloads.",
   "author": "All-Downloader Contributors",
@@ -22,7 +22,7 @@
       "48":  "src/assets/icons/icon48.png",
       "128": "src/assets/icons/icon128.png"
     },
-    "default_title": "All-Downloader"
+    "default_title": "All Downloader"
   },
 
   "background": {

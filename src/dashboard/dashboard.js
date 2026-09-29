@@ -200,7 +200,7 @@ function renderView(view) {
     queue:     ['Queue', 'Manage download order & scheduling'],
     history:   ['History', 'Completed & past downloads'],
     stats:     ['Statistics', 'Lifetime download analytics'],
-    settings:  ['Settings', 'Configure All-Downloader'],
+    settings:  ['Settings', 'Configure All Downloader'],
   };
 
   const [title, sub] = titles[view] || ['Dashboard', ''];
@@ -1432,6 +1432,24 @@ async function act(type, id) {
     updateSidebarStats();
     updateBadges();
     renderDownloadsTable();
+  } else if (type === MSG.CANCEL_DOWNLOAD) {
+    if (downloads[id]) downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+    selected.delete(id);
+    updateTableRowState(id);
+    updateSelectAllCheckbox();
+    updateBulkBar();
+    updateSidebarStats();
+    updateBadges();
+  } else if (type === MSG.PAUSE_DOWNLOAD) {
+    if (downloads[id]) downloads[id].state = DOWNLOAD_STATE.PAUSED;
+    updateTableRowState(id);
+    updateSidebarStats();
+    updateBadges();
+  } else if (type === MSG.RESUME_DOWNLOAD) {
+    if (downloads[id]) downloads[id].state = DOWNLOAD_STATE.DOWNLOADING;
+    updateTableRowState(id);
+    updateSidebarStats();
+    updateBadges();
   }
 }
 

@@ -40,6 +40,20 @@ async function init() {
   // Listen for live updates from SW
   chrome.runtime.onMessage.addListener(handleSWMessage);
 
+  // Delegated click handling for download items
+  $list.addEventListener('click', (e) => {
+    const btn = e.target.closest('.ctrl-btn');
+    if (!btn) return;
+    const item = btn.closest('.dl-item');
+    if (!item) return;
+    const id = item.dataset.id;
+    if (!id) return;
+
+    if (btn.classList.contains('ctrl-pause'))  pauseDl(id);
+    if (btn.classList.contains('ctrl-resume')) resumeDl(id);
+    if (btn.classList.contains('ctrl-cancel')) handleCancelOrRemove(id);
+  });
+
   // Button bindings
   document.getElementById('btn-dashboard').addEventListener('click', openDashboard);
   document.getElementById('btn-add').addEventListener('click', showModal);
@@ -71,6 +85,10 @@ function handleSWMessage(msg) {
 
     case MSG.DOWNLOAD_PROGRESS:
       if (downloads[msg.id]) {
+        // Discard incoming progress packets if user paused/cancelled/completed
+        if ([DOWNLOAD_STATE.CANCELLED, DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.PAUSED].includes(downloads[msg.id].state)) {
+          return;
+        }
         Object.assign(downloads[msg.id], {
           state:    DOWNLOAD_STATE.DOWNLOADING,
           received: msg.received,
@@ -138,11 +156,6 @@ function appendItem(dl) {
   const el   = node.querySelector('.dl-item');
   el.dataset.id    = dl.id;
   el.dataset.state = dl.state;
-
-  // Wire control buttons
-  el.querySelector('.ctrl-pause').addEventListener('click', () => pauseDl(dl.id));
-  el.querySelector('.ctrl-resume').addEventListener('click', () => resumeDl(dl.id));
-  el.querySelector('.ctrl-cancel').addEventListener('click', () => handleCancelOrRemove(dl.id));
 
   $list.insertBefore(node, $list.firstChild);
   populateItem(el, dl);
@@ -245,14 +258,33 @@ function updateStatusBar() {
 // ─────────────────────────────────────────────────────────────
 
 async function pauseDl(id) {
+  if (downloads[id]) {
+    downloads[id].state = DOWNLOAD_STATE.PAUSED;
+    downloads[id].speed = 0;
+    downloads[id].eta = null;
+    updateItem(id);
+    updateStatusBar();
+  }
   await sendMsg({ type: MSG.PAUSE_DOWNLOAD, id });
 }
 
 async function resumeDl(id) {
+  if (downloads[id]) {
+    downloads[id].state = DOWNLOAD_STATE.CONNECTING;
+    updateItem(id);
+    updateStatusBar();
+  }
   await sendMsg({ type: MSG.RESUME_DOWNLOAD, id });
 }
 
 async function cancelDl(id) {
+  if (downloads[id]) {
+    downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+    downloads[id].speed = 0;
+    downloads[id].eta = null;
+    updateItem(id);
+    updateStatusBar();
+  }
   await sendMsg({ type: MSG.CANCEL_DOWNLOAD, id });
 }
 

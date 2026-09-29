@@ -79,12 +79,12 @@ function _setupContextMenu() {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id:       'adl-download-link',
-      title:    'Download with All-Downloader',
+      title:    'Download with All Downloader',
       contexts: ['link', 'image', 'video', 'audio'],
     });
     chrome.contextMenus.create({
       id:       'adl-open-dashboard',
-      title:    'Open All-Downloader Dashboard',
+      title:    'Open All Downloader Dashboard',
       contexts: ['action'],
     });
   });
