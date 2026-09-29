@@ -490,6 +490,20 @@ function updateSelectAllCheckbox(visibleList = getFilteredDownloads()) {
   }
 }
 
+function updateBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  const countEl = document.getElementById('bulk-count');
+  if (!bar) return;
+
+  const count = selected.size;
+  if (count > 0) {
+    bar.hidden = false;
+    if (countEl) countEl.textContent = `${count} selected`;
+  } else {
+    bar.hidden = true;
+  }
+}
+
 function bindTableDelegation() {
   const tbody = document.getElementById('dl-tbody');
   if (!tbody || tbody.dataset.delegated) return;

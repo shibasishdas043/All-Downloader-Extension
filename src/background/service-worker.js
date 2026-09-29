@@ -54,6 +54,11 @@ self.addEventListener('activate', async () => {
 chrome.downloads.onCreated.addListener(async (item) => {
   if (!settings.interceptDownloads) return;
 
+  // Do NOT intercept internal extension blob downloads or data URLs
+  if (!item.url || item.url.startsWith('blob:') || item.url.startsWith('data:')) {
+    return;
+  }
+
   // Cancel the native download so we take over
   chrome.downloads.cancel(item.id, () => {
     chrome.downloads.erase({ id: item.id });

@@ -164,16 +164,26 @@ async function _probe(url, signal) {
       redirect:    'follow',
     });
   } catch {
-    // HEAD failed → minimal GET probe (bytes=0-0)
-    res = await fetch(url, {
-      method:      'GET',
-      signal,
-      headers:     { Range: 'bytes=0-0' },
-      credentials: 'include',
-      redirect:    'follow',
-    });
+    try {
+      // HEAD failed → minimal GET probe (bytes=0-0)
+      res = await fetch(url, {
+        method:      'GET',
+        signal,
+        headers:     { Range: 'bytes=0-0' },
+        credentials: 'include',
+        redirect:    'follow',
+      });
+    } catch {
+      // Both probes failed (e.g. strict CORS, rejected Range, or HEAD blocked)
+      // Fallback safely to single-stream download without metadata
+      return { contentLength: 0, acceptsRanges: false, filename: null };
+    }
   } finally {
     clearTimeout(timer);
+  }
+
+  if (!res || !res.ok) {
+    return { contentLength: 0, acceptsRanges: false, filename: null };
   }
 
   const contentLength = _parseContentLength(res);
@@ -208,7 +218,8 @@ async function _singleDownload({ download, totalSize, controller, throttle, prog
     emit();
   }
 
-  return _mergeUint8Arrays(chunks);
+  const merged = _mergeUint8Arrays(chunks);
+  return new Blob([merged]);
 }
 
 // ─────────────────────────────────────────────────────────────
