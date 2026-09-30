@@ -44,7 +44,15 @@ export async function probeUrl(url: string, signal: AbortSignal, timeoutMs = DEF
   const rawContentType = res.headers.get('Content-Type') || '';
   const mimeType = rawContentType.split(';')[0].trim().toLowerCase() || null;
 
-  return { contentLength, acceptsRanges, filename, mimeType };
+  // Check RFC 3230 / RFC 5843 Digest header (e.g. Digest: sha-256=...)
+  const digest = res.headers.get('Digest') || res.headers.get('Repr-Digest') || '';
+  let hashExpected: string | null = null;
+  const shaMatch = digest.match(/sha-?256=([A-Za-z0-9+/=]+)/i);
+  if (shaMatch && shaMatch[1]) {
+    hashExpected = shaMatch[1].trim();
+  }
+
+  return { contentLength, acceptsRanges, filename, mimeType, hashExpected };
 }
 
 export function parseContentLength(res: Response): number {

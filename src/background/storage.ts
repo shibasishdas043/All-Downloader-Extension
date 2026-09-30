@@ -64,17 +64,32 @@ export async function deleteDownload(id: string): Promise<void> {
   await saveDownloads(all);
 }
 
-/** Clear all completed / cancelled download history. */
+/** Clear all completed / cancelled download history and reset stats. */
 export async function clearHistory(): Promise<void> {
   const all = await loadDownloads();
   const active: Record<string, DownloadItem> = {};
   for (const [id, dl] of Object.entries(all)) {
     const st = dl.status || (dl as any).state;
-    if (['downloading', 'queued', 'paused', 'connecting'].includes(st)) {
+    if (['downloading', 'queued', 'paused', 'connecting', 'merging', 'verifying'].includes(st)) {
       active[id] = dl;
     }
   }
   await saveDownloads(active);
+  await resetStats();
+}
+
+/** Reset all lifetime stats to zero. */
+export async function resetStats(): Promise<void> {
+  const emptyStats = {
+    totalDownloadedBytes: 0,
+    totalCompletedFiles:  0,
+    totalFailedFiles:     0,
+    totalDownloaded:      0,
+    totalFiles:           0,
+    totalTime:            0,
+    sessionsCount:        0,
+  };
+  await storageSet({ [STORAGE_KEY.STATS]: emptyStats });
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -27,7 +27,14 @@ export function updateBadge(downloads: Iterable<DownloadItem>): void {
 }
 
 export function broadcastMessage(payload: Record<string, any>): void {
-  chrome.runtime.sendMessage(payload).catch(() => {});
+  try {
+    const p = chrome.runtime?.sendMessage(payload);
+    if (p && typeof (p as any).catch === 'function') {
+      (p as any).catch(() => {});
+    }
+  } catch {
+    // Ignore when popup/dashboard is closed
+  }
 }
 
 export function openDashboard(): void {

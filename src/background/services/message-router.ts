@@ -123,6 +123,7 @@ export async function handleMessage(
 
     case MSG.CLEAR_HISTORY: {
       await clearHistory();
+      coordinator.clearFinishedDownloads();
       return { ok: true };
     }
 

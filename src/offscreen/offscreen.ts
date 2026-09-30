@@ -39,8 +39,9 @@ async function handleCreateBlobUrl(params: {
   downloadId: string;
   chunkCount: number;
   mimeType?: string;
-}): Promise<{ success: boolean; blobUrl: string; size: number }> {
-  const { downloadId, chunkCount, mimeType } = params;
+  verifyHash?: boolean;
+}): Promise<{ success: boolean; blobUrl: string; size: number; sha256?: string }> {
+  const { downloadId, chunkCount, mimeType, verifyHash } = params;
 
   if (!downloadId || chunkCount <= 0) {
     throw new Error(`Invalid downloadId (${downloadId}) or chunkCount (${chunkCount})`);
@@ -60,7 +61,17 @@ async function handleCreateBlobUrl(params: {
     type: mimeType || 'application/octet-stream',
   });
 
-  // 3. Create native blob: URL
+  // 3. Compute SHA-256 checksum if integrity verification is requested
+  let sha256: string | undefined;
+  if (verifyHash) {
+    const arrayBuffer = await compositeBlob.arrayBuffer();
+    const digestBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    sha256 = Array.from(new Uint8Array(digestBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  // 4. Create native blob: URL
   const blobUrl = URL.createObjectURL(compositeBlob);
   activeBlobUrls.set(blobUrl, { downloadId, created: Date.now() });
 
@@ -68,5 +79,6 @@ async function handleCreateBlobUrl(params: {
     success: true,
     blobUrl,
     size: compositeBlob.size,
+    sha256,
   };
 }

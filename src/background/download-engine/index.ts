@@ -58,7 +58,7 @@ export async function startDownload(
 
     if (onMeta) {
       try {
-        await onMeta({ filename, mimeType, totalSize });
+        await onMeta({ filename, mimeType, totalSize, hashExpected: meta.hashExpected });
       } catch (err) {
         console.warn('[ADL] onMeta callback error:', err);
       }

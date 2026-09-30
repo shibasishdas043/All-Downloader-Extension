@@ -8,7 +8,7 @@ import {
 } from '../../shared/utils.js';
 import {
   upsertDownload, getDownload, deleteDownload,
-  loadDownloads, recordCompletion, clearChunks
+  loadDownloads, saveDownloads, recordCompletion, clearChunks
 } from '../storage.js';
 import { startDownload, pauseDownload, cancelDownload } from '../download-engine.js';
 import { playDownloadStartAnimation } from '../icon-animator.js';
@@ -153,36 +153,61 @@ export class DownloadCoordinator {
       },
       async (id, result, finalFilename) => {
         try {
-          await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState);
+          const shouldVerify = Boolean(this.settings.verifyIntegrity);
+          if (shouldVerify) {
+            await this.updateState(id, DOWNLOAD_STATE.VERIFYING as DownloadState);
+            broadcastMessage({ type: MSG.DOWNLOAD_PROGRESS, id, state: DOWNLOAD_STATE.VERIFYING });
+          } else {
+            await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState);
+          }
 
           const safeFilename = sanitizeFilename(finalFilename);
           const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename);
           const resolvedMime = result.mimeType || dl.mimeType || null;
           const resolvedCategory = detectCategory(safeFilename, resolvedMime);
 
-          // Update with final MIME type and category
-          await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
-            category: resolvedCategory,
-            mimeType: resolvedMime,
-          });
-
           // 1. Ensure Offscreen Document is active
           await ensureOffscreenDocument();
 
-          // 2. Request Offscreen Document to create Blob URL from IndexedDB chunks
+          // 2. Request Offscreen Document to create Blob URL from IndexedDB chunks (and compute hash if requested)
           const response = await chrome.runtime.sendMessage({
             type: MSG.OFFSCREEN_CREATE_BLOB_URL,
             downloadId: id,
             chunkCount: result.chunkCount,
             mimeType: result.mimeType,
+            verifyHash: shouldVerify,
           });
 
           if (!response || !response.success || !response.blobUrl) {
             throw new Error(response?.error || 'Failed to assemble download chunks in offscreen document');
           }
 
+          const actualHash = response.sha256 || null;
+          const currentDl = this.downloadCache.get(id) || dl;
+          const expectedHash = currentDl.hashExpected || null;
+          let verified: boolean | null = null;
+
+          if (actualHash) {
+            if (expectedHash) {
+              verified = actualHash.toLowerCase() === expectedHash.toLowerCase();
+              if (!verified) {
+                throw new Error(`Integrity check failed: SHA-256 mismatch (expected ${expectedHash}, got ${actualHash})`);
+              }
+            } else {
+              verified = true;
+            }
+          }
+
           const blobUrl = response.blobUrl;
           this.ownBlobUrls.add(blobUrl);
+
+          // Update with final MIME type, category, and integrity verification
+          await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
+            category: resolvedCategory,
+            mimeType: resolvedMime,
+            hashActual: actualHash,
+            hashVerified: verified,
+          });
 
           // 3. Initiate native Chrome streaming download to user disk
           chrome.downloads.download(
@@ -241,6 +266,9 @@ export class DownloadCoordinator {
           category: detectedCat,
           mimeType: meta.mimeType,
         };
+        if (meta.hashExpected && !dl.hashExpected) {
+          updates.hashExpected = meta.hashExpected;
+        }
         if (meta.totalSize > 0) {
           updates.total = meta.totalSize;
           updates.filesize = meta.totalSize;
@@ -307,6 +335,8 @@ export class DownloadCoordinator {
           showNotification('Download Complete', pending.safeFilename);
         }
 
+        await this.pruneHistory();
+
         await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);
       } else if (delta.state.current === 'interrupted') {
         this.pendingChromeDownloads.delete(delta.id);
@@ -371,5 +401,61 @@ export class DownloadCoordinator {
 
   public cleanupPending(downloadId: string): void {
     cleanupPendingChromeDownload(downloadId, this.pendingChromeDownloads);
+  }
+
+  public clearFinishedDownloads(): void {
+    for (const [id, dl] of this.downloadCache.entries()) {
+      const st = dl.status || (dl as any).state;
+      if (![
+        DOWNLOAD_STATE.DOWNLOADING,
+        DOWNLOAD_STATE.QUEUED,
+        DOWNLOAD_STATE.CONNECTING,
+        DOWNLOAD_STATE.PAUSED,
+        DOWNLOAD_STATE.MERGING,
+        DOWNLOAD_STATE.VERIFYING,
+      ].includes(st as any)) {
+        this.downloadCache.delete(id);
+      }
+    }
+    updateBadge(this.downloadCache.values());
+  }
+
+  public async pruneHistory(): Promise<void> {
+    const limit = Math.max(10, this.settings.maxHistoryItems || 500);
+    const all = await loadDownloads();
+    const finished: DownloadItem[] = [];
+    const active: Record<string, DownloadItem> = {};
+
+    for (const [id, dl] of Object.entries(all)) {
+      const st = dl.status || (dl as any).state;
+      if ([
+        DOWNLOAD_STATE.DOWNLOADING,
+        DOWNLOAD_STATE.QUEUED,
+        DOWNLOAD_STATE.CONNECTING,
+        DOWNLOAD_STATE.PAUSED,
+        DOWNLOAD_STATE.MERGING,
+        DOWNLOAD_STATE.VERIFYING
+      ].includes(st as any)) {
+        active[id] = dl;
+      } else {
+        finished.push(dl);
+      }
+    }
+
+    if (finished.length > limit) {
+      finished.sort((a, b) => (b.completedAt || b.createdAt || 0) - (a.completedAt || a.createdAt || 0));
+      const kept = finished.slice(0, limit);
+      const toDelete = finished.slice(limit);
+
+      for (const dl of toDelete) {
+        this.downloadCache.delete(dl.id);
+      }
+
+      const updatedMap = { ...active };
+      for (const dl of kept) {
+        updatedMap[dl.id] = dl;
+      }
+      await saveDownloads(updatedMap);
+    }
   }
 }

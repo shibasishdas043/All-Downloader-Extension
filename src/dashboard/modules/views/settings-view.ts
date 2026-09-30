@@ -65,18 +65,26 @@ export function bindSettings(onResetAll: () => void): void {
     };
 
     const newSettings = {
-      interceptDownloads: get('setting-intercept'),
-      autoStart:          get('setting-autostart'),
-      maxConcurrent:      get('setting-max-concurrent'),
-      maxChunks:          get('setting-max-chunks'),
-      speedLimitKBps:     get('setting-speed-limit'),
-      verifyIntegrity:    get('setting-verify-integrity'),
-      showNotifications:  get('setting-notifications'),
-      maxHistoryItems:    get('setting-max-history'),
+      interceptDownloads: Boolean(get('setting-intercept')),
+      autoStart:          Boolean(get('setting-autostart')),
+      maxConcurrent:      Math.max(1, Math.min(10, Math.round(Number(get('setting-max-concurrent')) || 3))),
+      maxChunks:          Math.max(1, Math.min(16, Math.round(Number(get('setting-max-chunks')) || 8))),
+      speedLimitKBps:     Math.max(0, Math.floor(Number(get('setting-speed-limit')) || 0)),
+      verifyIntegrity:    Boolean(get('setting-verify-integrity')),
+      showNotifications:  Boolean(get('setting-notifications')),
+      maxHistoryItems:    Math.max(10, Math.min(9999, Math.floor(Number(get('setting-max-history')) || 500))),
     };
 
     const res = await sendMsg({ type: MSG.UPDATE_SETTINGS, payload: newSettings });
-    if (res?.settings) state.settings = res.settings;
+    if (res?.settings) {
+      state.settings = res.settings;
+      const qSlider = document.getElementById('q-max-concurrent') as HTMLInputElement | null;
+      const qVal    = document.getElementById('q-max-val') as HTMLElement | null;
+      if (qSlider) {
+        qSlider.value = String(res.settings.maxConcurrent);
+        updateSliderFill(qSlider, qVal);
+      }
+    }
 
     const $status = document.getElementById('save-status');
     if ($status) {
@@ -87,9 +95,17 @@ export function bindSettings(onResetAll: () => void): void {
   });
 
   document.getElementById('btn-reset-all')?.addEventListener('click', async () => {
-    if (!confirm('This will clear ALL download history and reset stats. Are you sure?')) return;
+    if (!confirm('This will permanently clear all download history and reset lifetime stats. Are you sure?')) return;
     await sendMsg({ type: MSG.CLEAR_HISTORY });
     state.downloads = {};
+    state.histCurrentPage = 1;
     onResetAll();
+
+    const $status = document.getElementById('save-status');
+    if ($status) {
+      $status.textContent = 'All Data Reset';
+      $status.classList.add('visible');
+      setTimeout(() => $status.classList.remove('visible'), 2500);
+    }
   });
 }
