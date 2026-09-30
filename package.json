@@ -4,14 +4,16 @@
   "description": "A secure, open-source browser download manager extension",
   "type": "module",
   "scripts": {
+    "dev": "vite build --watch",
     "typecheck": "tsc --noEmit",
-    "bundle": "esbuild src/background/service-worker.ts --bundle --format=esm --target=es2022 --outfile=src/background/service-worker.js && esbuild src/popup/popup.ts --bundle --format=esm --target=es2022 --outfile=src/popup/popup.js && esbuild src/dashboard/dashboard.ts --bundle --format=esm --target=es2022 --outfile=src/dashboard/dashboard.js && esbuild src/content/link-interceptor.ts --bundle --format=iife --target=es2022 --outfile=src/content/link-interceptor.js",
+    "bundle": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "node scripts/build.js",
     "pack": "node scripts/build.js && cd dist && zip -r ../all-downloader.zip ."
   },
   "devDependencies": {
+    "@crxjs/vite-plugin": "^3.0.0",
     "@types/chrome": "^0.3.4",
     "@types/node": "^26.6.3",
     "esbuild": "^0.28.2",
@@ -19,7 +21,9 @@
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "prettier": "^3.2.5",
+    "rollup": "^4.63.5",
     "typescript": "^7.0.2",
+    "vite": "^8.3.1",
     "vitest": "^5.0.2"
   },
   "jest": {
