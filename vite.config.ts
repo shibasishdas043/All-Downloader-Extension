@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import { resolve } from 'path';
 import fs from 'fs';
 
@@ -61,4 +61,9 @@ export default defineConfig({
       },
     },
   ],
+  test: {
+    globals: true,
+    environment: 'node',
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.js'],
+  },
 });
