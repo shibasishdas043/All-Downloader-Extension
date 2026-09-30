@@ -9,8 +9,7 @@
     "bundle": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "node scripts/build.js",
-    "pack": "node scripts/build.js && cd dist && zip -r ../all-downloader.zip ."
+    "build": "tsc --noEmit && vite build"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",

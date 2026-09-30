@@ -58,7 +58,6 @@ All-Downloader-Extension/
 │   └── assets/icons/
 ├── _locales/en/messages.json
 ├── tests/unit/
-├── scripts/build.js
 └── package.json
 ```
 
