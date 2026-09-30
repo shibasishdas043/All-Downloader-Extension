@@ -155,12 +155,43 @@ var $modalAdd = document.getElementById("modal-add");
 var $urlInput = document.getElementById("url-input");
 var $filenameInput = document.getElementById("filename-input");
 var $tmpl = document.getElementById("tmpl-download-item");
+function bindEvents() {
+  $list.addEventListener("click", (e) => {
+    const target = e.target;
+    const btn = target?.closest(".ctrl-btn");
+    if (!btn) return;
+    const item = btn.closest(".dl-item");
+    if (!item) return;
+    const id = item.dataset.id;
+    if (!id) return;
+    if (btn.classList.contains("ctrl-pause")) pauseDl(id);
+    if (btn.classList.contains("ctrl-resume")) resumeDl(id);
+    if (btn.classList.contains("ctrl-cancel")) cancelDl(id);
+    if (btn.classList.contains("ctrl-remove")) deleteDl(id);
+    if (btn.classList.contains("ctrl-folder")) showInFolder(id);
+    if (btn.classList.contains("ctrl-retry")) retryDl(id);
+  });
+  document.getElementById("btn-dashboard")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    openDashboard();
+  });
+  document.getElementById("btn-view-all")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    openDashboard();
+  });
+  document.getElementById("btn-add")?.addEventListener("click", showModal);
+  document.getElementById("modal-close")?.addEventListener("click", hideModal);
+  document.getElementById("btn-start-download")?.addEventListener("click", startManualDownload);
+  document.getElementById("btn-pause-all")?.addEventListener("click", pauseAll);
+  $modalAdd.addEventListener("click", (e) => {
+    if (e.target === $modalAdd) hideModal();
+  });
+  $urlInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") startManualDownload();
+  });
+}
 async function init() {
-  const res = await sendMsg({ type: MSG.GET_DOWNLOADS });
-  if (res?.downloads) {
-    for (const dl of res.downloads) downloads[dl.id] = dl;
-  }
-  renderAll();
+  bindEvents();
   if (chrome.storage && chrome.storage.session) {
     chrome.storage.session.get("adl_autoOpened", ({ adl_autoOpened }) => {
       if (!adl_autoOpened) return;
@@ -177,33 +208,15 @@ async function init() {
     });
   }
   chrome.runtime.onMessage.addListener(handleSWMessage);
-  $list.addEventListener("click", (e) => {
-    const target = e.target;
-    const btn = target?.closest(".ctrl-btn");
-    if (!btn) return;
-    const item = btn.closest(".dl-item");
-    if (!item) return;
-    const id = item.dataset.id;
-    if (!id) return;
-    if (btn.classList.contains("ctrl-pause")) pauseDl(id);
-    if (btn.classList.contains("ctrl-resume")) resumeDl(id);
-    if (btn.classList.contains("ctrl-cancel")) cancelDl(id);
-    if (btn.classList.contains("ctrl-remove")) deleteDl(id);
-    if (btn.classList.contains("ctrl-folder")) showInFolder(id);
-    if (btn.classList.contains("ctrl-retry")) retryDl(id);
-  });
-  document.getElementById("btn-dashboard")?.addEventListener("click", openDashboard);
-  document.getElementById("btn-add")?.addEventListener("click", showModal);
-  document.getElementById("modal-close")?.addEventListener("click", hideModal);
-  document.getElementById("btn-start-download")?.addEventListener("click", startManualDownload);
-  document.getElementById("btn-pause-all")?.addEventListener("click", pauseAll);
-  document.getElementById("btn-view-all")?.addEventListener("click", openDashboard);
-  $modalAdd.addEventListener("click", (e) => {
-    if (e.target === $modalAdd) hideModal();
-  });
-  $urlInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") startManualDownload();
-  });
+  try {
+    const res = await sendMsg({ type: MSG.GET_DOWNLOADS });
+    if (res?.downloads) {
+      for (const dl of res.downloads) downloads[dl.id] = dl;
+    }
+  } catch (err) {
+    console.warn("[Popup] Failed to load initial downloads:", err);
+  }
+  renderAll();
 }
 function handleSWMessage(msg) {
   switch (msg?.type) {
@@ -459,9 +472,34 @@ async function startManualDownload() {
   hideModal();
   await sendMsg({ type: MSG.START_DOWNLOAD, payload: { url, filename } });
 }
-function openDashboard() {
-  sendMsg({ type: MSG.OPEN_DASHBOARD });
-  window.close();
+async function openDashboard() {
+  const url = chrome.runtime.getURL("src/dashboard/dashboard.html");
+  if (chrome.tabs && chrome.tabs.create) {
+    try {
+      chrome.tabs.query({ url }, (existingTabs) => {
+        if (chrome.runtime.lastError) {
+          chrome.tabs.create({ url }, () => window.close());
+          return;
+        }
+        if (existingTabs && existingTabs.length > 0 && existingTabs[0]?.id) {
+          chrome.tabs.update(existingTabs[0].id, { active: true }, () => {
+            if (existingTabs[0]?.windowId) {
+              chrome.windows?.update(existingTabs[0].windowId, { focused: true }, () => window.close());
+            } else {
+              window.close();
+            }
+          });
+        } else {
+          chrome.tabs.create({ url }, () => window.close());
+        }
+      });
+      return;
+    } catch (e) {
+      console.warn("[Popup] Direct tabs API failed, falling back to message:", e);
+    }
+  }
+  await sendMsg({ type: MSG.OPEN_DASHBOARD });
+  setTimeout(() => window.close(), 100);
 }
 function showModal() {
   $modalAdd.hidden = false;

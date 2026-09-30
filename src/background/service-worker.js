@@ -1181,8 +1181,11 @@ async function _restoreInProgressDownloads() {
 function _openDashboard() {
   const url = chrome.runtime.getURL("src/dashboard/dashboard.html");
   chrome.tabs.query({ url }, (tabs) => {
-    if (tabs.length > 0 && tabs[0]?.id) {
+    if (tabs && tabs.length > 0 && tabs[0]?.id) {
       chrome.tabs.update(tabs[0].id, { active: true });
+      if (tabs[0].windowId) {
+        chrome.windows?.update(tabs[0].windowId, { focused: true });
+      }
     } else {
       chrome.tabs.create({ url });
     }
