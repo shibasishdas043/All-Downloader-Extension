@@ -10,7 +10,7 @@ import {
   upsertDownload, getDownload, deleteDownload,
   loadDownloads, saveDownloads, recordCompletion, clearChunks
 } from '../storage.js';
-import { startDownload, pauseDownload, cancelDownload } from '../download-engine.js';
+import { startDownload, pauseDownload, cancelDownload, RateLimiter } from '../download-engine.js';
 import { playDownloadStartAnimation } from '../icon-animator.js';
 import { QueueManager } from '../queue-manager.js';
 import type { DownloadItem, ExtensionSettings, DownloadState } from '../../shared/types.js';
@@ -36,9 +36,11 @@ export class DownloadCoordinator {
   public pendingChromeDownloads = new Map<number, PendingChromeDownload>();
   public ownBlobUrls = new Set<string>();
   public queue: QueueManager;
+  public rateLimiter: RateLimiter;
 
   constructor(settings: ExtensionSettings) {
     this.settings = settings;
+    this.rateLimiter = new RateLimiter(settings.speedLimitKBps || 0);
     this.queue = new QueueManager({
       maxConcurrent: settings.maxConcurrent,
       onDequeue: (downloadId: string) => {
@@ -50,6 +52,7 @@ export class DownloadCoordinator {
   public updateSettings(newSettings: ExtensionSettings): void {
     this.settings = newSettings;
     this.queue.setMaxConcurrent(newSettings.maxConcurrent);
+    this.rateLimiter.setRate(newSettings.speedLimitKBps || 0);
   }
 
   public async updateState(
@@ -279,7 +282,8 @@ export class DownloadCoordinator {
           id: downloadId,
           ...updates,
         });
-      }
+      },
+      this.rateLimiter
     );
   }
 

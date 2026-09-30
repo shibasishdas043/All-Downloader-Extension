@@ -40,7 +40,7 @@ export async function executeSingleDownload({
     const { done, value } = await reader.read();
     if (done) break;
     if (value) {
-      await throttle(value.byteLength);
+      await throttle(value.byteLength, controller.signal);
       currentPieces.push(value);
       currentBytes += value.byteLength;
       progress.received += value.byteLength;

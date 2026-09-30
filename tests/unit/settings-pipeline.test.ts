@@ -33,8 +33,9 @@ describe('Settings Pipeline & Logic Enforcement', () => {
     expect((coordinator.queue as any).maxConcurrent).toBe(7);
 
     // Clamps to at least 1
-    coordinator.updateSettings({ ...DEFAULT_SETTINGS, maxConcurrent: -2 } as ExtensionSettings);
+    coordinator.updateSettings({ ...DEFAULT_SETTINGS, maxConcurrent: -2, speedLimitKBps: 500 } as ExtensionSettings);
     expect((coordinator.queue as any).maxConcurrent).toBe(1);
+    expect(coordinator.rateLimiter.getRateKBps()).toBe(500);
   });
 
   test('autoStart setting controls automatic queue dispatch on download creation', async () => {

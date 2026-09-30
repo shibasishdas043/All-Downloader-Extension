@@ -129,7 +129,7 @@ export async function fetchSegmentOnce({
     if (done) break;
 
     if (value) {
-      await throttle(value.byteLength);
+      await throttle(value.byteLength, controller.signal);
       pieces.push(value);
       seg.received += value.byteLength;
       progress.received += value.byteLength;

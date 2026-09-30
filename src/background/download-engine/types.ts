@@ -40,7 +40,7 @@ export interface SingleDownloadParams {
   download: DownloadItem;
   fallbackMime?: string;
   controller: AbortController;
-  throttle: (bytes: number) => Promise<void>;
+  throttle: (bytes: number, signal?: AbortSignal) => Promise<void>;
   progress: ProgressState;
   emit: () => void;
 }
@@ -51,7 +51,7 @@ export interface ChunkedDownloadParams {
   mimeType: string;
   settings: ExtensionSettings;
   controller: AbortController;
-  throttle: (bytes: number) => Promise<void>;
+  throttle: (bytes: number, signal?: AbortSignal) => Promise<void>;
   progress: ProgressState;
   emit: () => void;
 }
@@ -60,7 +60,7 @@ export interface SegmentFetchParams {
   download: DownloadItem;
   seg: SegmentDescriptor;
   controller: AbortController;
-  throttle: (bytes: number) => Promise<void>;
+  throttle: (bytes: number, signal?: AbortSignal) => Promise<void>;
   progress: ProgressState;
   emit: () => void;
 }

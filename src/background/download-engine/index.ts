@@ -13,7 +13,7 @@ import type {
   ProgressState,
 } from './types.js';
 import { probeUrl } from './probe.js';
-import { createThrottle } from './throttler.js';
+import { createThrottle, RateLimiter } from './throttler.js';
 import { executeSingleDownload } from './single-download.js';
 import { executeChunkedDownload } from './chunked-download.js';
 import {
@@ -41,7 +41,8 @@ export async function startDownload(
   onProgress: ProgressCallback,
   onComplete: CompleteCallback,
   onError: ErrorCallback,
-  onMeta?: MetaCallback
+  onMeta?: MetaCallback,
+  rateLimiter?: RateLimiter | ((bytes: number, signal?: AbortSignal) => Promise<void>)
 ): Promise<void> {
   cancelExistingDownload(download.id);
 
@@ -69,7 +70,11 @@ export async function startDownload(
       totalSize > 0 &&
       totalSize > settings.minChunkSizeMB * 1024 * 1024;
 
-    const throttle = createThrottle(settings.speedLimitKBps || 0);
+    const throttle = typeof rateLimiter === 'function'
+      ? rateLimiter
+      : rateLimiter
+        ? (bytes: number, signal?: AbortSignal) => rateLimiter.acquire(bytes, signal)
+        : createThrottle(settings.speedLimitKBps || 0);
 
     const progress: ProgressState = {
       received: 0,

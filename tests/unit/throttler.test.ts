@@ -25,4 +25,33 @@ describe('createThrottle', () => {
     const elapsed = Date.now() - start;
     expect(elapsed).toBeLessThan(50);
   });
+
+  test('serializes concurrent parallel chunks to strictly respect speed limit', async () => {
+    // 200 KB/s rate limit
+    const throttle = createThrottle(200);
+    const chunkBytes = 40 * 1024; // 40 KB
+
+    const start = Date.now();
+    // 3 parallel chunks downloading simultaneously = 120 KB total
+    // At 200 KB/s, 120 KB requires at least ~500ms (1st immediate, 2nd +200ms, 3rd +200ms -> finishes at ~400ms)
+    await Promise.all([
+      throttle(chunkBytes),
+      throttle(chunkBytes),
+      throttle(chunkBytes),
+    ]);
+    const elapsed = Date.now() - start;
+
+    expect(elapsed).toBeGreaterThanOrEqual(350);
+  });
+
+  test('dynamically updates rate limit when setRate is called', async () => {
+    const throttle = createThrottle(500);
+    expect(throttle.limiter.getRateKBps()).toBe(500);
+
+    throttle.setRate(250);
+    expect(throttle.limiter.getRateKBps()).toBe(250);
+
+    throttle.setRate(0);
+    expect(throttle.limiter.getRateKBps()).toBe(0);
+  });
 });
