@@ -73,25 +73,6 @@ function bindEvents(): void {
 async function init(): Promise<void> {
   bindEvents();
 
-  if (chrome.storage && (chrome.storage as any).session) {
-    (chrome.storage as any).session.get('adl_autoOpened', ({ adl_autoOpened }: { adl_autoOpened?: boolean }) => {
-      if (!adl_autoOpened) return;
-      (chrome.storage as any).session.remove('adl_autoOpened');
-
-      let autoCloseTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => window.close(), 3000);
-
-      const cancelAutoClose = () => {
-        if (autoCloseTimer) clearTimeout(autoCloseTimer);
-        autoCloseTimer = null;
-        document.removeEventListener('mousemove', cancelAutoClose);
-        document.removeEventListener('mousedown', cancelAutoClose);
-      };
-
-      document.addEventListener('mousemove', cancelAutoClose);
-      document.addEventListener('mousedown', cancelAutoClose);
-    });
-  }
-
   chrome.runtime.onMessage.addListener(handleSWMessage);
 
   try {

@@ -13,6 +13,7 @@ import {
   clearHistory, recordCompletion, clearChunks
 } from './storage.js';
 import { startDownload, pauseDownload, cancelDownload } from './download-engine.js';
+import { playDownloadStartAnimation } from './icon-animator.js';
 import { QueueManager } from './queue-manager.js';
 import type { DownloadItem, ExtensionSettings, DownloadState } from '../shared/types.js';
 
@@ -466,7 +467,7 @@ async function _addDownload({ url, filename, referrer = '', scheduledAt = null }
 
   _broadcast({ type: MSG.DOWNLOAD_ADDED, download });
   _updateBadge();
-  _autoOpenPopup();
+  playDownloadStartAnimation(() => _updateBadge());
 
   if (settings.autoStart) {
     queue.enqueue(id, scheduledAt);
@@ -623,20 +624,6 @@ function _updateBadge(): void {
     chrome.action.setBadgeText({ text: String(activeCount) });
   } else {
     chrome.action.setBadgeText({ text: '' });
-  }
-}
-
-function _autoOpenPopup(): void {
-  if (chrome.storage && (chrome.storage as any).session) {
-    (chrome.storage as any).session.set({ adl_autoOpened: true }).then(() => {
-      if (typeof (chrome.action as any).openPopup === 'function') {
-        (chrome.action as any).openPopup().catch(() => {
-          (chrome.storage as any).session.remove('adl_autoOpened');
-        });
-      } else {
-        (chrome.storage as any).session.remove('adl_autoOpened');
-      }
-    });
   }
 }
 

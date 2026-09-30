@@ -88,3 +88,28 @@ describe('SpeedTracker Pipeline', () => {
     expect(snap.etaSec === null || typeof snap.etaSec === 'number').toBe(true);
   });
 });
+
+describe('Toolbar Icon Animator', () => {
+  test('starts and stops download start animation cleanly', async () => {
+    const setBadgeText = vi.fn();
+    const setBadgeBackgroundColor = vi.fn();
+    const setIcon = vi.fn();
+
+    // Mock chrome.action global
+    (globalThis as any).chrome = {
+      action: {
+        setBadgeText,
+        setBadgeBackgroundColor,
+        setIcon,
+      },
+    };
+
+    const { playDownloadStartAnimation, stopDownloadStartAnimation } = await import('../../src/background/icon-animator.ts');
+
+    playDownloadStartAnimation();
+    expect(stopDownloadStartAnimation).toBeDefined();
+
+    stopDownloadStartAnimation();
+    expect(setIcon).toHaveBeenCalled();
+  });
+});
