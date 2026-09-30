@@ -1,23 +1,24 @@
 // ============================================================
-//  All-Downloader — Shared Constants
+//  All-Downloader — Shared Constants (TypeScript)
 //  Single source of truth for all enums, keys, config defaults
 // ============================================================
+import type { DownloadState, FileCategory } from './types.js';
 
 // ── Download States ──────────────────────────────────────────
-export const DOWNLOAD_STATE = Object.freeze({
-  QUEUED:     'queued',
-  CONNECTING: 'connecting',
-  DOWNLOADING:'downloading',
-  PAUSED:     'paused',
-  MERGING:    'merging',
-  VERIFYING:  'verifying',
-  COMPLETED:  'completed',
-  ERROR:      'error',
-  CANCELLED:  'cancelled',
+export const DOWNLOAD_STATE: Record<string, DownloadState> = Object.freeze({
+  QUEUED:      'queued',
+  CONNECTING:  'connecting',
+  DOWNLOADING: 'downloading',
+  PAUSED:      'paused',
+  MERGING:     'merging',
+  VERIFYING:   'verifying',
+  COMPLETED:   'completed',
+  ERROR:        'error',
+  CANCELLED:   'cancelled',
 });
 
 // ── File Categories ───────────────────────────────────────────
-export const FILE_CATEGORY = Object.freeze({
+export const FILE_CATEGORY: Record<string, FileCategory> = Object.freeze({
   VIDEO:       'video',
   AUDIO:       'audio',
   IMAGE:       'image',
@@ -28,7 +29,7 @@ export const FILE_CATEGORY = Object.freeze({
 });
 
 // ── Category MIME / extension mapping ────────────────────────
-export const CATEGORY_MAP = Object.freeze({
+export const CATEGORY_MAP: Record<string, readonly string[]> = Object.freeze({
   video:       ['mp4','mkv','avi','mov','wmv','flv','webm','m4v','mpg','mpeg'],
   audio:       ['mp3','aac','flac','wav','ogg','m4a','wma','opus'],
   image:       ['jpg','jpeg','png','gif','webp','svg','bmp','ico','tiff'],
@@ -66,42 +67,42 @@ export const MSG = Object.freeze({
   START_QUEUED_NOW:    'START_QUEUED_NOW',
   CLEAR_QUEUE:         'CLEAR_QUEUE',
   SHOW_IN_FOLDER:      'SHOW_IN_FOLDER',
-});
+} as const);
 
 // ── Storage Keys ─────────────────────────────────────────────
 export const STORAGE_KEY = Object.freeze({
-  DOWNLOADS:   'all_downloader_downloads',
-  SETTINGS:    'all_downloader_settings',
-  STATS:       'all_downloader_stats',
-});
+  DOWNLOADS: 'all_downloader_downloads',
+  SETTINGS:  'all_downloader_settings',
+  STATS:     'all_downloader_stats',
+} as const);
 
 // ── Default Settings ──────────────────────────────────────────
 export const DEFAULT_SETTINGS = Object.freeze({
-  maxConcurrent:       3,           // max simultaneous downloads
-  maxChunks:           8,           // segments per file
-  minChunkSizeMB:      2,           // min file size to chunk (MB)
-  speedLimitKBps:      0,           // 0 = unlimited
-  defaultSavePath:     '',          // empty = browser default
-  autoStart:           true,        // auto-start queued downloads
-  showNotifications:   true,        // OS notifications on complete
-  verifyIntegrity:     true,        // SHA-256 check when server provides hash
-  interceptDownloads:  true,        // intercept all browser downloads
-  darkMode:            true,
-  maxHistoryItems:     500,
+  maxConcurrent:      3,     // max simultaneous downloads
+  maxChunks:          8,     // segments per file
+  minChunkSizeMB:     2,     // min file size to chunk (MB)
+  speedLimitKBps:     0,     // 0 = unlimited
+  defaultSavePath:    '',    // empty = browser default
+  autoStart:          true,  // auto-start queued downloads
+  showNotifications:  true,  // OS notifications on complete
+  verifyIntegrity:    true,  // SHA-256 check when server provides hash
+  interceptDownloads: true,  // intercept all browser downloads
+  darkMode:           true,
+  maxHistoryItems:    500,
 });
 
 // ── UI Config ─────────────────────────────────────────────────
 export const UI = Object.freeze({
-  POPUP_MAX_VISIBLE:   7,           // max download items in popup
-  PROGRESS_INTERVAL:   500,         // ms between progress broadcasts
-  SPEED_SAMPLE_WINDOW: 3000,        // ms window for speed average
-});
+  POPUP_MAX_VISIBLE:   7,    // max download items in popup
+  PROGRESS_INTERVAL:   500,  // ms between progress broadcasts
+  SPEED_SAMPLE_WINDOW: 3000, // ms window for speed average
+} as const);
 
 // ── Color Palette ─────────────────────────────────────────────
 export const COLORS = Object.freeze({
-  skyBlue:  '#8ecae6',
-  ocean:    '#219ebc',
-  navy:     '#023047',
-  amber:    '#ffb703',
-  orange:   '#fb8500',
-});
+  skyBlue: '#8ecae6',
+  ocean:   '#219ebc',
+  navy:    '#023047',
+  amber:   '#ffb703',
+  orange:  '#fb8500',
+} as const);

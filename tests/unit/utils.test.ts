@@ -1,12 +1,12 @@
 // ============================================================
-//  Unit Tests — utils.js
+//  Unit Tests — utils.ts
 // ============================================================
 import {
   formatBytes, formatSpeed, formatETA,
   getFilenameFromUrl, getExtension, truncateName,
   detectCategory, generateId, calcPercent, isValidUrl,
   relativeTime
-} from '../../src/shared/utils.js';
+} from '../../src/shared/utils.ts';
 
 describe('formatBytes', () => {
   test('0 bytes',   () => expect(formatBytes(0)).toBe('0 B'));
@@ -30,7 +30,7 @@ describe('formatETA', () => {
 
 describe('getFilenameFromUrl', () => {
   test('simple',    () => expect(getFilenameFromUrl('https://example.com/file.zip')).toBe('file.zip'));
-  test('with query',() => expect(getFilenameFromUrl('https://cdn.example.com/video.mp4?v=3')).toBe('video.mp4?v=3'));
+  test('with query',() => expect(getFilenameFromUrl('https://cdn.example.com/video.mp4?v=3')).toBe('video.mp4'));
   test('no path',   () => expect(getFilenameFromUrl('https://example.com/')).toBe('download'));
   test('invalid',   () => expect(getFilenameFromUrl('not-a-url')).toBe('download'));
 });

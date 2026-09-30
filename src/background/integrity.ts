@@ -1,15 +1,19 @@
 // ============================================================
-//  All-Downloader — Integrity Checker
+//  All-Downloader — Integrity Checker (TypeScript)
 //  SHA-256 hash verification using the Web Crypto API.
 //  Zero external dependencies — fully browser-native.
 // ============================================================
 
+export interface IntegrityResult {
+  ok: boolean;
+  actual: string;
+  expected: string;
+}
+
 /**
  * Compute SHA-256 digest of an ArrayBuffer.
- * @param {ArrayBuffer} buffer
- * @returns {Promise<string>} Hex string hash
  */
-export async function sha256(buffer) {
+export async function sha256(buffer: ArrayBuffer): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
   return bufferToHex(hashBuffer);
 }
@@ -17,12 +21,9 @@ export async function sha256(buffer) {
 /**
  * Compute SHA-256 from a list of ArrayBuffer chunks.
  * Avoids concatenating all chunks into one giant buffer.
- * @param {ArrayBuffer[]} chunks
- * @returns {Promise<string>} Hex string hash
  */
-export async function sha256Chunks(chunks) {
-  // Merge all chunks into one ArrayBuffer, then hash
-  const total  = chunks.reduce((acc, c) => acc + c.byteLength, 0);
+export async function sha256Chunks(chunks: ArrayBuffer[]): Promise<string> {
+  const total = chunks.reduce((acc, c) => acc + c.byteLength, 0);
   const merged = new Uint8Array(total);
   let offset = 0;
   for (const chunk of chunks) {
@@ -34,23 +35,18 @@ export async function sha256Chunks(chunks) {
 
 /**
  * Verify a downloaded file's hash against an expected value.
- * @param {ArrayBuffer} buffer
- * @param {string}      expectedHex  Expected SHA-256 hex string
- * @returns {Promise<{ok: boolean, actual: string, expected: string}>}
  */
-export async function verifyIntegrity(buffer, expectedHex) {
+export async function verifyIntegrity(buffer: ArrayBuffer, expectedHex: string): Promise<IntegrityResult> {
   const actual = await sha256(buffer);
   const expected = expectedHex.toLowerCase().trim();
   return {
-    ok:       actual === expected,
+    ok: actual === expected,
     actual,
     expected,
   };
 }
 
-// ── Internal helpers ──────────────────────────────────────────
-
-function bufferToHex(buffer) {
+function bufferToHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');

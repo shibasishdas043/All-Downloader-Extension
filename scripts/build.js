@@ -29,6 +29,7 @@ const EXCLUDE_NAMES = new Set([
 ]);
 const EXCLUDE_EXTS = new Set([
   '.map',   // source maps — not needed in the extension
+  '.ts',    // typescript sources — compiled into .js bundles
 ]);
 
 // ── Helper: human-readable file size ─────────────────────────
@@ -100,12 +101,28 @@ console.log(`  Name     : ${manifest.name}`);
 console.log(`  Version  : ${manifest.version}`);
 console.log(`  MV       : ${manifest.manifest_version}`);
 
-// ── Step 2: Clean /dist ──────────────────────────────────────
+// ── Step 2: TypeScript Check & Bundle ────────────────────────
+console.log('\n⚙️   Running TypeScript type-check and esbuild bundle...');
+try {
+  execSync('npx tsc --noEmit', { cwd: ROOT, stdio: 'inherit' });
+  console.log('  ✓  TypeScript validation passed.');
+
+  execSync('npx esbuild src/background/service-worker.ts --bundle --format=esm --target=es2022 --outfile=src/background/service-worker.js', { cwd: ROOT, stdio: 'inherit' });
+  execSync('npx esbuild src/popup/popup.ts --bundle --format=esm --target=es2022 --outfile=src/popup/popup.js', { cwd: ROOT, stdio: 'inherit' });
+  execSync('npx esbuild src/dashboard/dashboard.ts --bundle --format=esm --target=es2022 --outfile=src/dashboard/dashboard.js', { cwd: ROOT, stdio: 'inherit' });
+  execSync('npx esbuild src/content/link-interceptor.ts --bundle --format=iife --target=es2022 --outfile=src/content/link-interceptor.js', { cwd: ROOT, stdio: 'inherit' });
+  console.log('  ✓  All bundles successfully generated.');
+} catch (err) {
+  console.error('\n❌  TypeScript check or esbuild bundling failed.');
+  process.exit(1);
+}
+
+// ── Step 3: Clean /dist ──────────────────────────────────────
 console.log('\n🗑   Cleaning dist/...');
 if (fs.existsSync(DIST)) fs.rmSync(DIST, { recursive: true, force: true });
 fs.mkdirSync(DIST, { recursive: true });
 
-// ── Step 3: Copy files ───────────────────────────────────────
+// ── Step 4: Copy files ───────────────────────────────────────
 console.log('📂  Copying files...\n');
 let anyMissing = false;
 

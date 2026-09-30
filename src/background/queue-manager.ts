@@ -1,29 +1,37 @@
 // ============================================================
-//  All-Downloader — Queue Manager
+//  All-Downloader — Queue Manager (TypeScript)
 //  Priority queue + concurrency limiter + scheduler
 // ============================================================
-import { DOWNLOAD_STATE } from '../shared/constants.js';
+
+export interface QueueManagerOptions {
+  maxConcurrent?: number;
+  onDequeue?: (downloadId: string) => void;
+}
+
+export interface QueueSnapshot {
+  running: string[];
+  queue: string[];
+  maxConcurrent: number;
+}
 
 export class QueueManager {
-  /**
-   * @param {object} options
-   * @param {number} options.maxConcurrent  Max parallel downloads
-   * @param {Function} options.onDequeue    Called when a queued download should start
-   */
-  constructor({ maxConcurrent = 3, onDequeue } = {}) {
+  private maxConcurrent: number;
+  private onDequeue?: (downloadId: string) => void;
+  private running: Set<string>;
+  private queue: string[];
+  private scheduled: Map<string, number>;
+
+  constructor({ maxConcurrent = 3, onDequeue }: QueueManagerOptions = {}) {
     this.maxConcurrent = maxConcurrent;
-    this.onDequeue     = onDequeue;
-    /** @type {string[]} IDs currently running */
-    this.running       = new Set();
-    /** @type {string[]} Ordered queue of IDs */
-    this.queue         = [];
-    /** @type {Map<string, number>} Scheduled alarms: downloadId → alarm timestamp */
-    this.scheduled     = new Map();
+    this.onDequeue = onDequeue;
+    this.running = new Set();
+    this.queue = [];
+    this.scheduled = new Map();
   }
 
   // ── Configuration ─────────────────────────────────────────
 
-  setMaxConcurrent(n) {
+  setMaxConcurrent(n: number): void {
     this.maxConcurrent = Math.max(1, n);
     this._flush();
   }
@@ -32,10 +40,8 @@ export class QueueManager {
 
   /**
    * Enqueue a download. If slots are free, starts immediately.
-   * @param {string} downloadId
-   * @param {number|null} scheduledAt  Unix ms timestamp to delay start
    */
-  enqueue(downloadId, scheduledAt = null) {
+  enqueue(downloadId: string, scheduledAt: number | null = null): void {
     if (scheduledAt && scheduledAt > Date.now()) {
       // Deferred — register a chrome.alarms entry
       this._scheduleAlarm(downloadId, scheduledAt);
@@ -49,9 +55,8 @@ export class QueueManager {
 
   /**
    * Mark a download as started (running).
-   * @param {string} downloadId
    */
-  markRunning(downloadId) {
+  markRunning(downloadId: string): void {
     this.running.add(downloadId);
     const idx = this.queue.indexOf(downloadId);
     if (idx !== -1) this.queue.splice(idx, 1);
@@ -60,18 +65,16 @@ export class QueueManager {
   /**
    * Mark a download as finished / paused / cancelled.
    * Frees a slot and triggers next in queue.
-   * @param {string} downloadId
    */
-  markDone(downloadId) {
+  markDone(downloadId: string): void {
     this.running.delete(downloadId);
     this._flush();
   }
 
   /**
    * Remove from queue (cancel queued-but-not-started).
-   * @param {string} downloadId
    */
-  remove(downloadId) {
+  remove(downloadId: string): void {
     this.running.delete(downloadId);
     const idx = this.queue.indexOf(downloadId);
     if (idx !== -1) this.queue.splice(idx, 1);
@@ -80,9 +83,8 @@ export class QueueManager {
 
   /**
    * Move a download to the front of the queue (priority boost).
-   * @param {string} downloadId
    */
-  prioritize(downloadId) {
+  prioritize(downloadId: string): void {
     const idx = this.queue.indexOf(downloadId);
     if (idx > 0) {
       this.queue.splice(idx, 1);
@@ -93,11 +95,8 @@ export class QueueManager {
 
   /**
    * Move a download up or down in the queue sequence.
-   * @param {string} downloadId
-   * @param {'up'|'down'} direction
-   * @returns {boolean} Whether the item was moved
    */
-  move(downloadId, direction) {
+  move(downloadId: string, direction: 'up' | 'down'): boolean {
     const idx = this.queue.indexOf(downloadId);
     if (idx === -1) return false;
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
@@ -111,9 +110,8 @@ export class QueueManager {
 
   /**
    * Remove and return all items in the waiting queue.
-   * @returns {string[]} Cleared download IDs
    */
-  clear() {
+  clear(): string[] {
     const cleared = [...this.queue];
     this.queue = [];
     return cleared;
@@ -121,45 +119,54 @@ export class QueueManager {
 
   // ── Introspection ──────────────────────────────────────────
 
-  isRunning(downloadId) { return this.running.has(downloadId); }
-  isQueued(downloadId)  { return this.queue.includes(downloadId); }
-  getQueueLength()      { return this.queue.length; }
-  getRunningCount()     { return this.running.size; }
-  hasFreeSlot()         { return this.running.size < this.maxConcurrent; }
+  isRunning(downloadId: string): boolean {
+    return this.running.has(downloadId);
+  }
+
+  isQueued(downloadId: string): boolean {
+    return this.queue.includes(downloadId);
+  }
+
+  getQueueLength(): number {
+    return this.queue.length;
+  }
+
+  getRunningCount(): number {
+    return this.running.size;
+  }
+
+  hasFreeSlot(): boolean {
+    return this.running.size < this.maxConcurrent;
+  }
 
   /** Full status snapshot for debugging / dashboard display */
-  getStatus() {
+  getStatus(): QueueSnapshot {
     return {
-      running:       [...this.running],
-      queue:         [...this.queue],
+      running: [...this.running],
+      queue: [...this.queue],
       maxConcurrent: this.maxConcurrent,
     };
   }
 
   // ── Scheduling (chrome.alarms) ─────────────────────────────
 
-  /**
-   * Register a chrome.alarms alarm to start a download at a specific time.
-   * @param {string} downloadId
-   * @param {number} atMs  Unix timestamp in ms
-   */
-  _scheduleAlarm(downloadId, atMs) {
+  private _scheduleAlarm(downloadId: string, atMs: number): void {
     const name = `adl_sched_${downloadId}`;
-    chrome.alarms.create(name, { when: atMs });
+    if (typeof chrome !== 'undefined' && chrome.alarms) {
+      chrome.alarms.create(name, { when: atMs });
+    }
     this.scheduled.set(downloadId, atMs);
   }
 
-  _cancelAlarm(downloadId) {
+  private _cancelAlarm(downloadId: string): void {
     const name = `adl_sched_${downloadId}`;
-    chrome.alarms.clear(name);
+    if (typeof chrome !== 'undefined' && chrome.alarms) {
+      chrome.alarms.clear(name);
+    }
     this.scheduled.delete(downloadId);
   }
 
-  /**
-   * Called from service-worker when chrome.alarms fires.
-   * @param {string} alarmName
-   */
-  handleAlarm(alarmName) {
+  handleAlarm(alarmName: string): void {
     if (!alarmName.startsWith('adl_sched_')) return;
     const downloadId = alarmName.replace('adl_sched_', '');
     this.scheduled.delete(downloadId);
@@ -168,11 +175,11 @@ export class QueueManager {
 
   // ── Internal flush ─────────────────────────────────────────
 
-  _flush() {
+  private _flush(): void {
     while (this.queue.length > 0 && this.running.size < this.maxConcurrent) {
       const next = this.queue.shift();
+      if (!next) break;
       this.running.add(next);
-      // Notify the service worker to actually start this download
       if (typeof this.onDequeue === 'function') {
         this.onDequeue(next);
       }

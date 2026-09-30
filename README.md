@@ -41,18 +41,20 @@
 ```
 All-Downloader-Extension/
 ├── manifest.json               ← MV3 manifest
+├── tsconfig.json               ← TypeScript config
+├── vitest.config.ts            ← Vitest config
 ├── src/
 │   ├── background/
-│   │   ├── service-worker.js   ← Main SW + message router
-│   │   ├── download-engine.js  ← Fetch + chunk + pause/resume
-│   │   ├── queue-manager.js    ← Priority queue + scheduler
-│   │   ├── speed-tracker.js    ← Rolling-window speed/ETA
-│   │   ├── integrity.js        ← SHA-256 (SubtleCrypto)
-│   │   └── storage.js          ← chrome.storage + IndexedDB
-│   ├── popup/                  ← Compact 380px popup
-│   ├── dashboard/              ← Full-page SPA dashboard
-│   ├── content/                ← Link interceptor
-│   ├── shared/                 ← Constants, utils (no side effects)
+│   │   ├── service-worker.ts   ← Main SW + message router (TS source)
+│   │   ├── download-engine.ts  ← Fetch + chunk + pause/resume (TS source)
+│   │   ├── queue-manager.ts    ← Priority queue + scheduler (TS source)
+│   │   ├── speed-tracker.ts    ← Rolling-window speed/ETA (TS source)
+│   │   ├── integrity.ts        ← SHA-256 (SubtleCrypto) (TS source)
+│   │   └── storage.ts          ← chrome.storage + IndexedDB (TS source)
+│   ├── popup/                  ← Compact 380px popup (popup.ts, popup.html, popup.css)
+│   ├── dashboard/              ← Full-page SPA dashboard (dashboard.ts, dashboard.html, dashboard.css)
+│   ├── content/                ← Link interceptor (link-interceptor.ts)
+│   ├── shared/                 ← Constants, types.ts, utils.ts
 │   └── assets/icons/
 ├── _locales/en/messages.json
 ├── tests/unit/
@@ -67,18 +69,19 @@ All-Downloader-Extension/
 1. Open `chrome://extensions`
 2. Enable **Developer Mode** (top right)
 3. Click **Load Unpacked**
-4. Select this folder (`All-Downloader-Extension/`)
+4. Select this folder (`All-Downloader-Extension/`) or `dist/`
 5. Pin the extension to the toolbar
 
 ---
 
-## 🛠️ Development
+## 🛠️ Development & TypeScript
 
 ```bash
-npm install       # Install dev dependencies
-npm run lint      # Lint all JS files
-npm test          # Run unit tests
-npm run build     # Build to /dist
+npm install         # Install dev dependencies
+npm run typecheck   # Type-check TypeScript sources (tsc --noEmit)
+npm test            # Run unit tests with Vitest
+npm run bundle      # Bundle TS sources into target JS scripts
+npm run build       # Full build: typecheck + bundle + package to dist/ & zip
 ```
 
 ---

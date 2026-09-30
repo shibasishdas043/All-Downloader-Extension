@@ -1,42 +1,28 @@
 // ============================================================
-//  All-Downloader — Shared Utilities
+//  All-Downloader — Shared Utilities (TypeScript)
 // ============================================================
 import { CATEGORY_MAP, FILE_CATEGORY } from './constants.js';
+import type { FileCategory } from './types.js';
 
 // ── Byte / Size Formatting ────────────────────────────────────
-/**
- * Format raw bytes into human-readable string.
- * @param {number} bytes
- * @param {number} decimals
- * @returns {string}
- */
-export function formatBytes(bytes, decimals = 2) {
-  if (!bytes || bytes === 0) return '0 B';
+export function formatBytes(bytes: number | null | undefined, decimals = 2): string {
+  if (!bytes || bytes <= 0 || isNaN(bytes)) return '0 B';
   const k = 1024;
   const dm = decimals < 0 ? 0 : decimals;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+  const safeI = Math.min(i, sizes.length - 1);
+  return `${parseFloat((bytes / Math.pow(k, safeI)).toFixed(dm))} ${sizes[safeI]}`;
 }
 
 // ── Speed Formatting ─────────────────────────────────────────
-/**
- * Format bytes/sec into human-readable speed string.
- * @param {number} bytesPerSec
- * @returns {string}
- */
-export function formatSpeed(bytesPerSec) {
-  if (!bytesPerSec || bytesPerSec <= 0) return '0 B/s';
+export function formatSpeed(bytesPerSec: number | null | undefined): string {
+  if (!bytesPerSec || bytesPerSec <= 0 || isNaN(bytesPerSec)) return '0 B/s';
   return `${formatBytes(bytesPerSec, 1)}/s`;
 }
 
 // ── Time / ETA Formatting ─────────────────────────────────────
-/**
- * Format seconds into MM:SS or HH:MM:SS string.
- * @param {number} seconds
- * @returns {string}
- */
-export function formatETA(seconds) {
+export function formatETA(seconds: number | null | undefined): string {
   if (!seconds || seconds <= 0 || !isFinite(seconds)) return '--:--';
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -45,17 +31,12 @@ export function formatETA(seconds) {
   return `${pad(m)}:${pad(s)}`;
 }
 
-function pad(n) {
+function pad(n: number): string {
   return String(n).padStart(2, '0');
 }
 
 // ── Filename Utilities ────────────────────────────────────────
-/**
- * Extract filename from URL (fallback: 'download').
- * @param {string} url
- * @returns {string}
- */
-export function getFilenameFromUrl(url) {
+export function getFilenameFromUrl(url: string): string {
   try {
     const u = new URL(url);
     const parts = u.pathname.split('/');
@@ -66,72 +47,44 @@ export function getFilenameFromUrl(url) {
   }
 }
 
-/**
- * Extract extension (without dot) from filename.
- * @param {string} filename
- * @returns {string}
- */
-export function getExtension(filename) {
+export function getExtension(filename: string): string {
+  if (!filename) return '';
   const parts = filename.split('.');
-  return parts.length > 1 ? parts[parts.length - 1].toLowerCase() : '';
+  return parts.length > 1 ? (parts[parts.length - 1] || '').toLowerCase() : '';
 }
 
-/**
- * Truncate filename for display.
- * @param {string} name
- * @param {number} max
- * @returns {string}
- */
-export function truncateName(name, max = 32) {
-  if (name.length <= max) return name;
+export function truncateName(name: string, max = 32): string {
+  if (!name || name.length <= max) return name;
   const ext = getExtension(name);
-  const base = name.slice(0, name.length - ext.length - 1);
-  const truncated = base.slice(0, max - ext.length - 4);
+  const base = name.slice(0, name.length - ext.length - (ext ? 1 : 0));
+  const truncated = base.slice(0, Math.max(0, max - ext.length - 4));
   return `${truncated}...${ext ? '.' + ext : ''}`;
 }
 
 // ── Category Detection ────────────────────────────────────────
-/**
- * Detect file category from filename extension.
- * @param {string} filename
- * @returns {string}
- */
-export function detectCategory(filename) {
+export function detectCategory(filename: string): FileCategory {
   const ext = getExtension(filename);
   for (const [cat, exts] of Object.entries(CATEGORY_MAP)) {
-    if (exts.includes(ext)) return cat;
+    if ((exts as readonly string[]).includes(ext)) {
+      return cat as FileCategory;
+    }
   }
-  return FILE_CATEGORY.OTHER;
+  return FILE_CATEGORY.OTHER as FileCategory;
 }
 
 // ── Unique ID Generator ───────────────────────────────────────
-/**
- * Generate a unique download ID.
- * @returns {string}
- */
-export function generateId() {
+export function generateId(): string {
   return `dl_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
 // ── Percentage ────────────────────────────────────────────────
-/**
- * Calculate percentage (0–100), safe for zero total.
- * @param {number} received
- * @param {number} total
- * @returns {number}
- */
-export function calcPercent(received, total) {
+export function calcPercent(received: number, total: number): number {
   if (!total || total <= 0) return 0;
   return Math.min(100, Math.round((received / total) * 100));
 }
 
 // ── URL Validation ────────────────────────────────────────────
-/**
- * Check if a string is a valid HTTP(S) URL.
- * @param {string} url
- * @returns {boolean}
- */
-export function isValidUrl(url) {
+export function isValidUrl(url: string): boolean {
   try {
     const u = new URL(url);
     return u.protocol === 'http:' || u.protocol === 'https:';
@@ -141,12 +94,7 @@ export function isValidUrl(url) {
 }
 
 // ── Timestamp ─────────────────────────────────────────────────
-/**
- * Human-readable relative time (e.g. "2 min ago").
- * @param {number} timestamp  Unix ms
- * @returns {string}
- */
-export function relativeTime(timestamp) {
+export function relativeTime(timestamp: number): string {
   const diff = Date.now() - timestamp;
   if (diff < 60_000)      return 'Just now';
   if (diff < 3_600_000)   return `${Math.floor(diff / 60_000)} min ago`;
@@ -155,18 +103,13 @@ export function relativeTime(timestamp) {
 }
 
 // ── Content-Disposition parser ────────────────────────────────
-/**
- * Extract filename from Content-Disposition header.
- * @param {string} header
- * @returns {string|null}
- */
-export function parseContentDisposition(header) {
+export function parseContentDisposition(header: string | null | undefined): string | null {
   if (!header) return null;
   const match = header.match(/filename\*?=["']?(?:UTF-8'')?([^;"'\n]+)/i);
-  return match ? decodeURIComponent(match[1].trim()) : null;
+  return match ? decodeURIComponent(match[1]?.trim() || '') : null;
 }
 
 // ── Sleep helper ──────────────────────────────────────────────
-export function sleep(ms) {
+export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }

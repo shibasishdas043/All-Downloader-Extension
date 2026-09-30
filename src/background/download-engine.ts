@@ -1,81 +1,73 @@
 // ============================================================
-//  All-Downloader — Download Engine  (Industry-Grade)
-//
-//  Architecture:
-//    • HEAD probe  → detect Content-Length, Accept-Ranges, filename
-//    • Chunked     → N parallel HTTP Range segments, streamed into IDB
-//    • Single      → streaming fallback for servers that reject ranges
-//    • Retry       → per-segment exponential back-off with ±30 % jitter
-//    • Throttle    → token-bucket rate limiter (speedLimitKBps setting)
-//    • Resumable   → on resume, already-completed segments are skipped
-//    • Safe memory → never holds the whole file in RAM; uses IDB slabs
+//  All-Downloader — Download Engine (TypeScript)
 // ============================================================
 import { UI }                                   from '../shared/constants.js';
-import { SpeedTracker }                        from './speed-tracker.js';
+import { SpeedTracker, type SpeedSnapshot }    from './speed-tracker.js';
 import { saveChunk, loadChunk, clearChunks }   from './storage.js';
+import type { DownloadItem, ExtensionSettings } from '../shared/types.js';
 
-// ─────────────────────────────────────────────────────────────
-//  Constants
-// ─────────────────────────────────────────────────────────────
-
-/** Maximum number of parallel segments (hard cap). */
 const MAX_SEGMENTS        = 16;
-/** Minimum byte range per segment. Never split below this. */
 const MIN_SEGMENT_BYTES   = 256 * 1024;       // 256 KB
-/** Per-segment retry budget. */
 const MAX_SEGMENT_RETRIES = 5;
-/** Base delay for exponential back-off (ms). */
 const RETRY_BASE_MS       = 500;
-/** HTTP timeout for the HEAD probe (ms). */
 const HEAD_TIMEOUT_MS     = 10_000;
-/** Minimum ms between onProgress broadcasts — driven by UI.PROGRESS_INTERVAL. */
 const PROGRESS_MIN_GAP    = UI.PROGRESS_INTERVAL;
 
-// ─────────────────────────────────────────────────────────────
-//  Active-download registry
-//  Maps downloadId → { controller, segments[] }
-// ─────────────────────────────────────────────────────────────
-const _registry = new Map();
+export interface SegmentDescriptor {
+  index: number;
+  start: number;
+  end: number;
+  received: number;
+  done: boolean;
+}
 
-// ─────────────────────────────────────────────────────────────
-//  Public API
-// ─────────────────────────────────────────────────────────────
+interface ActiveRegistryEntry {
+  controller: AbortController;
+  segments: SegmentDescriptor[];
+}
+
+const _registry = new Map<string, ActiveRegistryEntry>();
+
+export type ProgressCallback = (id: string, received: number, total: number, speedSnap: SpeedSnapshot) => void;
+export type CompleteCallback = (id: string, blob: Blob, filename: string) => Promise<void> | void;
+export type ErrorCallback = (id: string, errorMessage: string) => void;
+
+interface ProgressState {
+  received: number;
+  total: number;
+  lastBroadcast: number;
+}
 
 /**
  * Start (or resume) a download.
- *
- * @param {object}   download    Download record from storage
- * @param {object}   settings    Current extension settings
- * @param {Function} onProgress  (id, received, total, speedSnap) => void
- * @param {Function} onComplete  (id, blob, filename) => void
- * @param {Function} onError     (id, errorMessage) => void
  */
-export async function startDownload(download, settings, onProgress, onComplete, onError) {
-  // Abort any previous ghost controller for this id
+export async function startDownload(
+  download: DownloadItem,
+  settings: ExtensionSettings,
+  onProgress: ProgressCallback,
+  onComplete: CompleteCallback,
+  onError: ErrorCallback
+): Promise<void> {
   _cancelExisting(download.id);
 
   const controller = new AbortController();
   _registry.set(download.id, { controller, segments: [] });
 
   try {
-    // ── 1. Probe the server ───────────────────────────────────
     const meta = await _probe(download.url, controller.signal);
 
     const totalSize     = meta.contentLength;
     const acceptsRanges = meta.acceptsRanges;
     const filename      = meta.filename || download.filename;
 
-    // ── 2. Pick strategy ──────────────────────────────────────
     const canChunk =
       acceptsRanges &&
       totalSize > 0 &&
       totalSize > settings.minChunkSizeMB * 1024 * 1024;
 
-    // Throttle function (no-op when unlimited)
     const throttle = _makeThrottle(settings.speedLimitKBps || 0);
 
-    // Shared mutable progress state
-    const progress = {
+    const progress: ProgressState = {
       received:      0,
       total:         totalSize,
       lastBroadcast: 0,
@@ -90,20 +82,19 @@ export async function startDownload(download, settings, onProgress, onComplete, 
       onProgress(download.id, progress.received, progress.total, tracker.getSnapshot());
     };
 
-    let blob;
+    let blob: Blob;
     if (canChunk) {
       blob = await _chunkedDownload({
         download, totalSize, settings, controller, throttle, progress, emit,
       });
     } else {
       blob = await _singleDownload({
-        download, totalSize, controller, throttle, progress, emit,
+        download, controller, throttle, progress, emit,
       });
     }
 
     _registry.delete(download.id);
 
-    // Final broadcast at 100 %
     tracker.record(progress.total || blob.size, progress.total || blob.size);
     onProgress(
       download.id,
@@ -114,19 +105,14 @@ export async function startDownload(download, settings, onProgress, onComplete, 
 
     await onComplete(download.id, blob, filename);
 
-  } catch (err) {
+  } catch (err: any) {
     _registry.delete(download.id);
-    if (err.name === 'AbortError') return;   // paused or cancelled — silent
-    onError(download.id, err.message || 'Unknown download error');
+    if (err?.name === 'AbortError') return;
+    onError(download.id, err?.message || 'Unknown download error');
   }
 }
 
-/**
- * Pause an active download.
- * The fetch streams are aborted; IDB chunks are preserved for resume.
- * @param {string} downloadId
- */
-export function pauseDownload(downloadId) {
+export function pauseDownload(downloadId: string): void {
   const entry = _registry.get(downloadId);
   if (entry) {
     entry.controller.abort();
@@ -134,38 +120,36 @@ export function pauseDownload(downloadId) {
   }
 }
 
-/**
- * Cancel a download and erase all its IDB chunks.
- * @param {string} downloadId
- */
-export async function cancelDownload(downloadId) {
+export async function cancelDownload(downloadId: string): Promise<void> {
   pauseDownload(downloadId);
   await clearChunks(downloadId);
 }
 
 // ─────────────────────────────────────────────────────────────
-//  HEAD Probe  (Content-Length, Accept-Ranges, filename)
+//  HEAD Probe
 // ─────────────────────────────────────────────────────────────
 
-async function _probe(url, signal) {
-  // Timeout controller for the probe itself
+interface ProbeMeta {
+  contentLength: number;
+  acceptsRanges: boolean;
+  filename: string | null;
+}
+
+async function _probe(url: string, signal: AbortSignal): Promise<ProbeMeta> {
   const headCtrl = new AbortController();
   const timer    = setTimeout(() => headCtrl.abort(), HEAD_TIMEOUT_MS);
-
-  // Combine caller's abort with our timeout
   const combined = _combineSignals(signal, headCtrl.signal);
 
-  let res;
+  let res: Response | null = null;
   try {
     res = await fetch(url, {
       method:      'HEAD',
       signal:      combined,
-      credentials: 'include',   // carry cookies so CDN auth works
+      credentials: 'include',
       redirect:    'follow',
     });
   } catch {
     try {
-      // HEAD failed → minimal GET probe (bytes=0-0)
       res = await fetch(url, {
         method:      'GET',
         signal,
@@ -174,8 +158,6 @@ async function _probe(url, signal) {
         redirect:    'follow',
       });
     } catch {
-      // Both probes failed (e.g. strict CORS, rejected Range, or HEAD blocked)
-      // Fallback safely to single-stream download without metadata
       return { contentLength: 0, acceptsRanges: false, filename: null };
     }
   } finally {
@@ -194,10 +176,18 @@ async function _probe(url, signal) {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Single-Connection Download  (streaming, memory-safe)
+//  Single-Connection Download
 // ─────────────────────────────────────────────────────────────
 
-async function _singleDownload({ download, totalSize, controller, throttle, progress, emit }) {
+interface SingleDownloadParams {
+  download: DownloadItem;
+  controller: AbortController;
+  throttle: (bytes: number) => Promise<void>;
+  progress: ProgressState;
+  emit: () => void;
+}
+
+async function _singleDownload({ download, controller, throttle, progress, emit }: SingleDownloadParams): Promise<Blob> {
   const res = await fetch(download.url, {
     signal:      controller.signal,
     credentials: 'include',
@@ -205,33 +195,41 @@ async function _singleDownload({ download, totalSize, controller, throttle, prog
   });
 
   if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
+  if (!res.body) throw new Error('Response body is null');
 
   const reader = res.body.getReader();
-  const chunks = [];
+  const chunks: Uint8Array[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    await throttle(value.byteLength);
-    chunks.push(value);
-    progress.received += value.byteLength;
-    emit();
+    if (value) {
+      await throttle(value.byteLength);
+      chunks.push(value);
+      progress.received += value.byteLength;
+      emit();
+    }
   }
 
   const merged = _mergeUint8Arrays(chunks);
-  return new Blob([merged]);
+  return new Blob([merged.buffer as ArrayBuffer]);
 }
 
 // ─────────────────────────────────────────────────────────────
 //  Multi-Segment (Chunked) Download
-//  IDM-style algorithm:
-//    1. Divide file into N equal segments.
-//    2. Fetch all segments in parallel with AbortController.
-//    3. Each segment streams data into IDB.
-//    4. On completion, reassemble from IDB and return Blob.
 // ─────────────────────────────────────────────────────────────
 
-async function _chunkedDownload({ download, totalSize, settings, controller, throttle, progress, emit }) {
+interface ChunkedDownloadParams {
+  download: DownloadItem;
+  totalSize: number;
+  settings: ExtensionSettings;
+  controller: AbortController;
+  throttle: (bytes: number) => Promise<void>;
+  progress: ProgressState;
+  emit: () => void;
+}
+
+async function _chunkedDownload({ download, totalSize, settings, controller, throttle, progress, emit }: ChunkedDownloadParams): Promise<Blob> {
   const numSegs = Math.max(
     1,
     Math.min(
@@ -241,26 +239,22 @@ async function _chunkedDownload({ download, totalSize, settings, controller, thr
     ),
   );
 
-  // Build segment descriptors
   const segSize  = Math.ceil(totalSize / numSegs);
-  const segments = Array.from({ length: numSegs }, (_, i) => {
+  const segments: SegmentDescriptor[] = Array.from({ length: numSegs }, (_, i) => {
     const start = i * segSize;
     const end   = i === numSegs - 1 ? totalSize - 1 : start + segSize - 1;
     return { index: i, start, end, received: 0, done: false };
   });
 
-  // Store in registry so external callers (future dynamic re-seg) can see them
   const entry = _registry.get(download.id);
   if (entry) entry.segments = segments;
 
-  // ── Download all segments in parallel ────────────────────────
   await Promise.all(
     segments.map(seg =>
       _fetchSegmentWithRetry({ download, seg, controller, throttle, progress, emit })
     )
   );
 
-  // ── Re-assemble from IDB in index order ──────────────────────
   progress.received = totalSize;
   emit();
 
@@ -268,14 +262,12 @@ async function _chunkedDownload({ download, totalSize, settings, controller, thr
     segments.map(s => loadChunk(download.id, s.index))
   );
 
-  // Sanity-check: every segment must be present
   for (let i = 0; i < buffers.length; i++) {
     if (!buffers[i]) throw new Error(`Segment ${i} missing after download`);
   }
 
-  const blob = new Blob(buffers.map(b => new Uint8Array(b)));
+  const blob = new Blob(buffers.map(b => new Uint8Array(b!)));
 
-  // Clean up IDB asynchronously (non-blocking)
   clearChunks(download.id).catch(() => {});
 
   return blob;
@@ -285,8 +277,16 @@ async function _chunkedDownload({ download, totalSize, settings, controller, thr
 //  Per-Segment Fetcher with Exponential Back-off + Jitter
 // ─────────────────────────────────────────────────────────────
 
-async function _fetchSegmentWithRetry({ download, seg, controller, throttle, progress, emit }) {
-  // Skip if already in IDB (resume path)
+interface SegmentFetchParams {
+  download: DownloadItem;
+  seg: SegmentDescriptor;
+  controller: AbortController;
+  throttle: (bytes: number) => Promise<void>;
+  progress: ProgressState;
+  emit: () => void;
+}
+
+async function _fetchSegmentWithRetry({ download, seg, controller, throttle, progress, emit }: SegmentFetchParams): Promise<void> {
   const existing = await loadChunk(download.id, seg.index);
   if (existing) {
     seg.done      = true;
@@ -305,28 +305,22 @@ async function _fetchSegmentWithRetry({ download, seg, controller, throttle, pro
       await _fetchSegmentOnce({ download, seg, controller, throttle, progress, emit });
       seg.done = true;
       return;
-    } catch (err) {
-      if (err.name === 'AbortError') throw err;   // propagate pause/cancel
+    } catch (err: any) {
+      if (err.name === 'AbortError') throw err;
       attempt++;
       if (attempt >= MAX_SEGMENT_RETRIES) {
         throw new Error(`Segment ${seg.index} failed after ${attempt} retries: ${err.message}`);
       }
-      // Exponential back-off: base * 2^attempt  ±30 % jitter, capped at 30 s
       const delay = RETRY_BASE_MS * Math.pow(2, attempt - 1) * (0.7 + Math.random() * 0.6);
       await _sleep(Math.min(delay, 30_000), controller.signal);
 
-      // Undo this segment's progress contribution before retrying
       progress.received -= seg.received;
       seg.received = 0;
     }
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-//  Single Segment Fetch  (one HTTP Range request → IDB)
-// ─────────────────────────────────────────────────────────────
-
-async function _fetchSegmentOnce({ download, seg, controller, throttle, progress, emit }) {
+async function _fetchSegmentOnce({ download, seg, controller, throttle, progress, emit }: SegmentFetchParams): Promise<void> {
   const res = await fetch(download.url, {
     signal:      controller.signal,
     credentials: 'include',
@@ -334,48 +328,46 @@ async function _fetchSegmentOnce({ download, seg, controller, throttle, progress
     headers:     { Range: `bytes=${seg.start}-${seg.end}` },
   });
 
-  // 206 Partial Content is expected; 200 OK means server ignored the Range header
   if (!res.ok && res.status !== 206) {
     throw new Error(`HTTP ${res.status} for segment ${seg.index}`);
   }
+  if (!res.body) throw new Error('Segment response body is null');
 
   const reader = res.body.getReader();
-  const pieces = [];
+  const pieces: Uint8Array[] = [];
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    await throttle(value.byteLength);
-
-    pieces.push(value);
-    seg.received      += value.byteLength;
-    progress.received += value.byteLength;
-    emit();
+    if (value) {
+      await throttle(value.byteLength);
+      pieces.push(value);
+      seg.received      += value.byteLength;
+      progress.received += value.byteLength;
+      emit();
+    }
   }
 
-  // Merge pieces and persist to IDB
   const merged = _mergeUint8Arrays(pieces);
-  await saveChunk(download.id, seg.index, merged.buffer);
+  await saveChunk(download.id, seg.index, merged.buffer as ArrayBuffer);
 }
 
 // ─────────────────────────────────────────────────────────────
 //  Token-Bucket Rate Limiter
-//  Limits throughput to `kbps` kilobytes per second.
-//  Returns an async throttle(bytes) function.
 // ─────────────────────────────────────────────────────────────
 
-function _makeThrottle(kbps) {
+function _makeThrottle(kbps: number): (bytes: number) => Promise<void> {
   if (!kbps || kbps <= 0) {
-    return () => Promise.resolve();   // unlimited — no-op
+    return () => Promise.resolve();
   }
 
   const bytesPerSec = kbps * 1024;
-  let   tokens      = bytesPerSec;           // start with a full bucket
+  let   tokens      = bytesPerSec;
   let   lastRefill  = Date.now();
-  const MAX_TOKENS  = bytesPerSec * 2;       // 2-second burst capacity
+  const MAX_TOKENS  = bytesPerSec * 2;
 
-  return function throttle(bytes) {
+  return function throttle(bytes: number): Promise<void> {
     const now     = Date.now();
     const elapsed = (now - lastRefill) / 1000;
     tokens        = Math.min(MAX_TOKENS, tokens + elapsed * bytesPerSec);
@@ -386,7 +378,6 @@ function _makeThrottle(kbps) {
       return Promise.resolve();
     }
 
-    // Wait until the bucket refills enough
     const deficit = bytes - tokens;
     const waitMs  = (deficit / bytesPerSec) * 1000;
     tokens        = 0;
@@ -398,8 +389,7 @@ function _makeThrottle(kbps) {
 //  Internal helpers
 // ─────────────────────────────────────────────────────────────
 
-/** Merge an array of Uint8Arrays into one contiguous Uint8Array. */
-function _mergeUint8Arrays(arrays) {
+function _mergeUint8Arrays(arrays: Uint8Array[]): Uint8Array {
   const total  = arrays.reduce((s, a) => s + a.byteLength, 0);
   const merged = new Uint8Array(total);
   let   offset = 0;
@@ -410,11 +400,7 @@ function _mergeUint8Arrays(arrays) {
   return merged;
 }
 
-/**
- * Sleep for `ms` milliseconds.
- * Rejects with AbortError if the provided signal fires first.
- */
-function _sleep(ms, signal) {
+function _sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
     const id = setTimeout(resolve, ms);
@@ -425,44 +411,35 @@ function _sleep(ms, signal) {
   });
 }
 
-/**
- * Parse a numeric Content-Length from a Response.
- * Returns 0 if absent or unparseable.
- */
-function _parseContentLength(res) {
+function _parseContentLength(res: Response): number {
   const raw = res.headers.get('Content-Length');
+  if (!raw) return 0;
   const n   = parseInt(raw, 10);
   return isFinite(n) && n > 0 ? n : 0;
 }
 
-/**
- * Extract filename from Content-Disposition (RFC 5987 + legacy) or URL path.
- */
-function _parseFilename(res, url) {
+function _parseFilename(res: Response, url: string): string {
   const cd = res.headers.get('Content-Disposition') || '';
 
-  // RFC 5987: filename*=UTF-8''url%20encoded%20name
   let m = cd.match(/filename\*\s*=\s*UTF-8''([^;\s]+)/i);
-  if (m) {
+  if (m && m[1]) {
     try { return decodeURIComponent(m[1]); } catch { /* fall through */ }
   }
 
-  // Legacy: filename="name.ext"  or  filename=name.ext
   m = cd.match(/filename\s*=\s*["']?([^;"'\n]+)["']?/i);
-  if (m) return m[1].trim();
+  if (m && m[1]) return m[1].trim();
 
-  // Last resort: URL path segment
   try {
     const u    = new URL(url);
     const segs = u.pathname.split('/').filter(Boolean);
-    if (segs.length) return decodeURIComponent(segs[segs.length - 1]);
+    const last = segs[segs.length - 1];
+    if (last) return decodeURIComponent(last);
   } catch { /* ignore */ }
 
   return 'download';
 }
 
-/** Abort any existing controller for this id (ghost cleanup on restart). */
-function _cancelExisting(downloadId) {
+function _cancelExisting(downloadId: string): void {
   const prev = _registry.get(downloadId);
   if (prev) {
     prev.controller.abort();
@@ -470,15 +447,10 @@ function _cancelExisting(downloadId) {
   }
 }
 
-/**
- * Combine two AbortSignals so that aborting EITHER one aborts the combined result.
- * Uses addEventListener (no AbortSignal.any) for maximum Chromium compatibility.
- */
-function _combineSignals(s1, s2) {
+function _combineSignals(s1: AbortSignal, s2: AbortSignal): AbortSignal {
   const ctrl  = new AbortController();
   const abort = () => ctrl.abort();
   s1.addEventListener('abort', abort, { once: true });
   s2.addEventListener('abort', abort, { once: true });
   return ctrl.signal;
 }
-
