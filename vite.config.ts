@@ -12,6 +12,7 @@ export default defineConfig({
       input: {
         popup: resolve(import.meta.dirname, 'src/popup/popup.html'),
         dashboard: resolve(import.meta.dirname, 'src/dashboard/dashboard.html'),
+        offscreen: resolve(import.meta.dirname, 'src/offscreen/offscreen.html'),
         'service-worker': resolve(import.meta.dirname, 'src/background/service-worker.ts'),
         'link-interceptor': resolve(import.meta.dirname, 'src/content/link-interceptor.ts'),
       },
@@ -22,6 +23,9 @@ export default defineConfig({
           }
           if (chunkInfo.name === 'link-interceptor') {
             return 'src/content/link-interceptor.js';
+          }
+          if (chunkInfo.name === 'offscreen') {
+            return 'src/offscreen/offscreen.js';
           }
           return 'src/[name]/[name].js';
         },

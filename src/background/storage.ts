@@ -144,29 +144,66 @@ function openIDB(): Promise<IDBDatabase> {
   });
 }
 
-/** Save a chunk buffer for a given downloadId + chunkIndex. */
-export async function saveChunk(downloadId: string, chunkIndex: number, buffer: ArrayBuffer | Blob): Promise<void> {
+/** Save a chunk (Blob or ArrayBuffer) for a given downloadId + chunkIndex. */
+export async function saveChunk(downloadId: string, chunkIndex: number, chunk: ArrayBuffer | Blob): Promise<void> {
   const db  = await openIDB();
   const key = `${downloadId}_${chunkIndex}`;
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(IDB_STORE, 'readwrite');
     const store = tx.objectStore(IDB_STORE);
-    const req   = store.put({ key, buffer });
+    const req   = store.put({ key, buffer: chunk });
     req.onsuccess = () => resolve();
     req.onerror   = (e) => reject((e.target as IDBRequest).error);
   });
 }
 
-/** Load a chunk buffer. */
-export async function loadChunk(downloadId: string, chunkIndex: number): Promise<ArrayBuffer | null> {
+/** Load a chunk (ArrayBuffer or Blob). */
+export async function loadChunk(downloadId: string, chunkIndex: number): Promise<ArrayBuffer | Blob | null> {
   const db  = await openIDB();
   const key = `${downloadId}_${chunkIndex}`;
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(IDB_STORE, 'readonly');
     const store = tx.objectStore(IDB_STORE);
     const req   = store.get(key);
-    req.onsuccess = (e) => resolve((e.target as IDBRequest).result?.buffer || null);
+    req.onsuccess = (e) => {
+      const res = (e.target as IDBRequest).result;
+      resolve(res?.buffer || res?.blob || null);
+    };
     req.onerror   = (e) => reject((e.target as IDBRequest).error);
+  });
+}
+
+/** Load all chunks in sequential order using a single batch transaction. */
+export async function loadAllChunks(downloadId: string, count: number): Promise<(ArrayBuffer | Blob)[]> {
+  const db = await openIDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const store = tx.objectStore(IDB_STORE);
+    const results: (ArrayBuffer | Blob)[] = new Array(count);
+    let loaded = 0;
+    let failed = false;
+
+    if (count <= 0) {
+      resolve([]);
+      return;
+    }
+
+    for (let i = 0; i < count; i++) {
+      const req = store.get(`${downloadId}_${i}`);
+      req.onsuccess = () => {
+        if (failed) return;
+        const res = req.result;
+        results[i] = res?.buffer || res?.blob;
+        loaded++;
+        if (loaded === count) {
+          resolve(results);
+        }
+      };
+      req.onerror = (e) => {
+        failed = true;
+        reject((e.target as IDBRequest).error);
+      };
+    }
   });
 }
 

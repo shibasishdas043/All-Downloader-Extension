@@ -10,7 +10,7 @@ import {
 import {
   upsertDownload, getDownload, deleteDownload,
   loadDownloads, loadSettings, saveSettings,
-  clearHistory, recordCompletion
+  clearHistory, recordCompletion, clearChunks
 } from './storage.js';
 import { startDownload, pauseDownload, cancelDownload } from './download-engine.js';
 import { QueueManager } from './queue-manager.js';
@@ -23,6 +23,151 @@ import type { DownloadItem, ExtensionSettings, DownloadState } from '../shared/t
 let settings: ExtensionSettings = { ...DEFAULT_SETTINGS } as ExtensionSettings;
 const downloadCache = new Map<string, DownloadItem>();
 const _ownBlobUrls = new Set<string>();
+
+interface PendingChromeDownload {
+  id: string;
+  blobUrl: string;
+  safeFilename: string;
+  fileSize: number;
+}
+
+const pendingChromeDownloads = new Map<number, PendingChromeDownload>();
+let creatingOffscreenPromise: Promise<void> | null = null;
+
+async function ensureOffscreenDocument(): Promise<void> {
+  const path = 'src/offscreen/offscreen.html';
+  const offscreenUrl = chrome.runtime.getURL(path);
+
+  if ('getContexts' in chrome.runtime) {
+    const contexts = await (chrome.runtime as any).getContexts({
+      contextTypes: ['OFFSCREEN_DOCUMENT'],
+      documentUrls: [offscreenUrl],
+    });
+    if (contexts && contexts.length > 0) return;
+  } else {
+    const matchedClients = await (self as any).clients?.matchAll();
+    if (matchedClients?.some((c: any) => c.url === offscreenUrl)) return;
+  }
+
+  if (creatingOffscreenPromise) {
+    await creatingOffscreenPromise;
+    return;
+  }
+
+  creatingOffscreenPromise = (async () => {
+    try {
+      await chrome.offscreen.createDocument({
+        url: path,
+        reasons: [chrome.offscreen.Reason.BLOBS],
+        justification: 'Create Blob URL for streaming multi-segment downloads to disk without memory freeze',
+      });
+    } catch (err: any) {
+      if (!err.message?.includes('Only a single offscreen document may be created')) {
+        throw err;
+      }
+    } finally {
+      creatingOffscreenPromise = null;
+    }
+  })();
+
+  await creatingOffscreenPromise;
+}
+
+async function closeOffscreenDocumentIfIdle(): Promise<void> {
+  if (pendingChromeDownloads.size > 0) return;
+  try {
+    if ('getContexts' in chrome.runtime) {
+      const contexts = await (chrome.runtime as any).getContexts({
+        contextTypes: ['OFFSCREEN_DOCUMENT'],
+      });
+      if (contexts && contexts.length > 0) {
+        await chrome.offscreen.closeDocument();
+      }
+    }
+  } catch {
+    // Ignore if already closed
+  }
+}
+
+function _cleanupPendingChromeDownload(downloadId: string): void {
+  for (const [chromeDlId, pending] of pendingChromeDownloads.entries()) {
+    if (pending.id === downloadId) {
+      chrome.downloads.cancel(chromeDlId).catch(() => {});
+      chrome.runtime.sendMessage({
+        type: MSG.OFFSCREEN_REVOKE_BLOB_URL,
+        blobUrl: pending.blobUrl,
+      }).catch(() => {});
+      pendingChromeDownloads.delete(chromeDlId);
+      closeOffscreenDocumentIfIdle().catch(() => {});
+      break;
+    }
+  }
+}
+
+chrome.downloads.onChanged.addListener(async (delta) => {
+  const pending = pendingChromeDownloads.get(delta.id);
+  if (!pending) return;
+
+  if (delta.state) {
+    if (delta.state.current === 'complete') {
+      pendingChromeDownloads.delete(delta.id);
+
+      // Revoke the blob URL in the offscreen document
+      chrome.runtime.sendMessage({
+        type: MSG.OFFSCREEN_REVOKE_BLOB_URL,
+        blobUrl: pending.blobUrl,
+      }).catch(() => {});
+
+      // Clear disk-backed chunks from IndexedDB
+      await clearChunks(pending.id);
+
+      // Complete download state
+      const completedAt = Date.now();
+      const dlRecord: any = await getDownload(pending.id);
+      await _updateState(pending.id, DOWNLOAD_STATE.COMPLETED as DownloadState, {
+        completedAt,
+        percent: 100,
+        progress: 100,
+        speed: 0,
+        eta: 0,
+        filename: pending.safeFilename,
+      });
+
+      await recordCompletion(pending.fileSize, completedAt - (dlRecord?.startedAt || completedAt));
+      queue.markDone(pending.id);
+      _broadcast({ type: MSG.DOWNLOAD_COMPLETED, id: pending.id });
+
+      if (settings.showNotifications) {
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: chrome.runtime.getURL('src/assets/icons/icon48.png'),
+          title: 'Download Complete',
+          message: pending.safeFilename,
+        });
+      }
+
+      await closeOffscreenDocumentIfIdle();
+    } else if (delta.state.current === 'interrupted') {
+      pendingChromeDownloads.delete(delta.id);
+
+      chrome.runtime.sendMessage({
+        type: MSG.OFFSCREEN_REVOKE_BLOB_URL,
+        blobUrl: pending.blobUrl,
+      }).catch(() => {});
+
+      await clearChunks(pending.id);
+
+      await _updateState(pending.id, DOWNLOAD_STATE.ERROR as DownloadState, {
+        error: `Chrome download interrupted (${delta.error?.current || 'unknown'}) — click Retry`,
+        errorMessage: `Chrome download interrupted (${delta.error?.current || 'unknown'}) — click Retry`,
+      });
+      queue.markDone(pending.id);
+      _broadcast({ type: MSG.DOWNLOAD_ERROR, id: pending.id, error: delta.error?.current });
+
+      await closeOffscreenDocumentIfIdle();
+    }
+  }
+});
 
 const queue = new QueueManager({
   maxConcurrent: settings.maxConcurrent,
@@ -200,6 +345,7 @@ async function _handleMessage(msg: any): Promise<any> {
 
     case MSG.CANCEL_DOWNLOAD: {
       await cancelDownload(msg.id);
+      _cleanupPendingChromeDownload(msg.id);
       await _updateState(msg.id, DOWNLOAD_STATE.CANCELLED as DownloadState);
       queue.remove(msg.id);
       _broadcast({ type: MSG.DOWNLOAD_CANCELLED, id: msg.id });
@@ -223,6 +369,7 @@ async function _handleMessage(msg: any): Promise<any> {
 
     case MSG.DELETE_DOWNLOAD: {
       await cancelDownload(msg.id);
+      _cleanupPendingChromeDownload(msg.id);
       await deleteDownload(msg.id);
       queue.remove(msg.id);
       downloadCache.delete(msg.id);
@@ -354,52 +501,64 @@ async function _executeDownload(downloadId: string): Promise<void> {
       await _updateState(id, DOWNLOAD_STATE.DOWNLOADING as DownloadState, update);
       _broadcast({ type: MSG.DOWNLOAD_PROGRESS, id, ...update });
     },
-    async (id, blob, finalFilename) => {
+    async (id, result, finalFilename) => {
       try {
         await _updateState(id, DOWNLOAD_STATE.MERGING as DownloadState);
 
         const safeFilename = _sanitizeFilename(finalFilename);
         const savePath = _buildSavePath(settings.defaultSavePath, safeFilename);
 
-        const dataUrl = await _blobToDataUrl(blob);
+        // 1. Ensure Offscreen Document is active
+        await ensureOffscreenDocument();
 
+        // 2. Request Offscreen Document to create Blob URL from IndexedDB chunks (zero-copy pointer composition)
+        const response = await chrome.runtime.sendMessage({
+          type: MSG.OFFSCREEN_CREATE_BLOB_URL,
+          downloadId: id,
+          chunkCount: result.chunkCount,
+          mimeType: result.mimeType,
+        });
+
+        if (!response || !response.success || !response.blobUrl) {
+          throw new Error(response?.error || 'Failed to assemble download chunks in offscreen document');
+        }
+
+        const blobUrl = response.blobUrl;
+
+        // 3. Initiate native Chrome streaming download to user disk with zero memory freeze
         chrome.downloads.download(
           {
-            url: dataUrl,
+            url: blobUrl,
             filename: savePath,
             saveAs: false,
             conflictAction: 'uniquify',
           },
-          (_dlId) => {
-            if (chrome.runtime.lastError) {
-              console.error('[ADL] save error:', chrome.runtime.lastError.message);
+          (chromeDlId) => {
+            if (chrome.runtime.lastError || !chromeDlId) {
+              const err = chrome.runtime.lastError?.message || 'Chrome download API rejected request';
+              console.error('[ADL] save error:', err);
+              chrome.runtime.sendMessage({
+                type: MSG.OFFSCREEN_REVOKE_BLOB_URL,
+                blobUrl,
+              }).catch(() => {});
+              _updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
+                error: `Save failed: ${err} — click Retry`,
+                errorMessage: `Save failed: ${err} — click Retry`,
+              });
+              queue.markDone(id);
+              _broadcast({ type: MSG.DOWNLOAD_ERROR, id, error: err });
+              return;
             }
+
+            // Map chrome download ID to handle completion via chrome.downloads.onChanged
+            pendingChromeDownloads.set(chromeDlId, {
+              id,
+              blobUrl,
+              safeFilename,
+              fileSize: result.totalSize,
+            });
           },
         );
-
-        const completedAt = Date.now();
-        const dlRecord: any = await getDownload(id);
-        await _updateState(id, DOWNLOAD_STATE.COMPLETED as DownloadState, {
-          completedAt,
-          percent: 100,
-          progress: 100,
-          speed: 0,
-          eta: 0,
-          filename: safeFilename,
-        });
-
-        await recordCompletion(blob.size, completedAt - (dlRecord?.startedAt || completedAt));
-        queue.markDone(id);
-        _broadcast({ type: MSG.DOWNLOAD_COMPLETED, id });
-
-        if (settings.showNotifications) {
-          chrome.notifications.create({
-            type: 'basic',
-            iconUrl: chrome.runtime.getURL('src/assets/icons/icon48.png'),
-            title: 'Download Complete',
-            message: safeFilename,
-          });
-        }
 
       } catch (err: any) {
         console.error('[ADL] onComplete error:', err);
@@ -518,19 +677,6 @@ function _openDashboard(): void {
   });
 }
 
-async function _blobToDataUrl(blob: Blob): Promise<string> {
-  const buffer   = await blob.arrayBuffer();
-  const uint8    = new Uint8Array(buffer);
-  const mimeType = blob.type || 'application/octet-stream';
-
-  let binary = '';
-  const CHUNK = 8192;
-  for (let i = 0; i < uint8.length; i += CHUNK) {
-    binary += String.fromCharCode.apply(null, Array.from(uint8.subarray(i, i + CHUNK)));
-  }
-
-  return `data:${mimeType};base64,${btoa(binary)}`;
-}
 
 function _sanitizeFilename(name: string): string {
   if (!name || typeof name !== 'string') return 'download';

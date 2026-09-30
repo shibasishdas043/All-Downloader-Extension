@@ -4,7 +4,7 @@
 import { UI }                                   from '../shared/constants.js';
 import { SpeedTracker, type SpeedSnapshot }    from './speed-tracker.js';
 import { saveChunk, loadChunk, clearChunks }   from './storage.js';
-import type { DownloadItem, ExtensionSettings } from '../shared/types.js';
+import type { DownloadItem, ExtensionSettings, DownloadResult } from '../shared/types.js';
 
 const MAX_SEGMENTS        = 16;
 const MIN_SEGMENT_BYTES   = 256 * 1024;       // 256 KB
@@ -29,7 +29,7 @@ interface ActiveRegistryEntry {
 const _registry = new Map<string, ActiveRegistryEntry>();
 
 export type ProgressCallback = (id: string, received: number, total: number, speedSnap: SpeedSnapshot) => void;
-export type CompleteCallback = (id: string, blob: Blob, filename: string) => Promise<void> | void;
+export type CompleteCallback = (id: string, result: DownloadResult, filename: string) => Promise<void> | void;
 export type ErrorCallback = (id: string, errorMessage: string) => void;
 
 interface ProgressState {
@@ -82,28 +82,29 @@ export async function startDownload(
       onProgress(download.id, progress.received, progress.total, tracker.getSnapshot());
     };
 
-    let blob: Blob;
+    let result: DownloadResult;
     if (canChunk) {
-      blob = await _chunkedDownload({
+      result = await _chunkedDownload({
         download, totalSize, settings, controller, throttle, progress, emit,
       });
     } else {
-      blob = await _singleDownload({
+      result = await _singleDownload({
         download, controller, throttle, progress, emit,
       });
     }
 
     _registry.delete(download.id);
 
-    tracker.record(progress.total || blob.size, progress.total || blob.size);
+    const finalSize = progress.total || result.totalSize;
+    tracker.record(finalSize, finalSize);
     onProgress(
       download.id,
-      progress.total || blob.size,
-      progress.total || blob.size,
+      finalSize,
+      finalSize,
       tracker.getSnapshot(),
     );
 
-    await onComplete(download.id, blob, filename);
+    await onComplete(download.id, result, filename);
 
   } catch (err: any) {
     _registry.delete(download.id);
@@ -187,7 +188,7 @@ interface SingleDownloadParams {
   emit: () => void;
 }
 
-async function _singleDownload({ download, controller, throttle, progress, emit }: SingleDownloadParams): Promise<Blob> {
+async function _singleDownload({ download, controller, throttle, progress, emit }: SingleDownloadParams): Promise<DownloadResult> {
   const res = await fetch(download.url, {
     signal:      controller.signal,
     credentials: 'include',
@@ -197,22 +198,45 @@ async function _singleDownload({ download, controller, throttle, progress, emit 
   if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
   if (!res.body) throw new Error('Response body is null');
 
-  const reader = res.body.getReader();
-  const chunks: Uint8Array[] = [];
+  const mimeType = res.headers.get('Content-Type') || 'application/octet-stream';
+  const reader   = res.body.getReader();
+
+  // Stream into IndexedDB in bounded 16 MB chunks so memory never exceeds 16 MB
+  const PART_SIZE = 16 * 1024 * 1024;
+  let currentPieces: Uint8Array[] = [];
+  let currentBytes = 0;
+  let chunkIndex = 0;
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     if (value) {
       await throttle(value.byteLength);
-      chunks.push(value);
+      currentPieces.push(value);
+      currentBytes      += value.byteLength;
       progress.received += value.byteLength;
       emit();
+
+      if (currentBytes >= PART_SIZE) {
+        const partBlob = new Blob(currentPieces as BlobPart[]);
+        currentPieces  = [];
+        currentBytes   = 0;
+        await saveChunk(download.id, chunkIndex++, partBlob);
+      }
     }
   }
 
-  const merged = _mergeUint8Arrays(chunks);
-  return new Blob([merged.buffer as ArrayBuffer]);
+  if (currentPieces.length > 0 || chunkIndex === 0) {
+    const partBlob = new Blob(currentPieces as BlobPart[]);
+    currentPieces  = [];
+    await saveChunk(download.id, chunkIndex++, partBlob);
+  }
+
+  return {
+    chunkCount: chunkIndex,
+    totalSize: progress.received,
+    mimeType,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -229,7 +253,7 @@ interface ChunkedDownloadParams {
   emit: () => void;
 }
 
-async function _chunkedDownload({ download, totalSize, settings, controller, throttle, progress, emit }: ChunkedDownloadParams): Promise<Blob> {
+async function _chunkedDownload({ download, totalSize, settings, controller, throttle, progress, emit }: ChunkedDownloadParams): Promise<DownloadResult> {
   const numSegs = Math.max(
     1,
     Math.min(
@@ -258,19 +282,13 @@ async function _chunkedDownload({ download, totalSize, settings, controller, thr
   progress.received = totalSize;
   emit();
 
-  const buffers = await Promise.all(
-    segments.map(s => loadChunk(download.id, s.index))
-  );
-
-  for (let i = 0; i < buffers.length; i++) {
-    if (!buffers[i]) throw new Error(`Segment ${i} missing after download`);
-  }
-
-  const blob = new Blob(buffers.map(b => new Uint8Array(b!)));
-
-  clearChunks(download.id).catch(() => {});
-
-  return blob;
+  // All segments are stored in disk-backed IndexedDB Blobs.
+  // Return metadata for zero-copy streaming assembly in offscreen document.
+  return {
+    chunkCount: segments.length,
+    totalSize,
+    mimeType: 'application/octet-stream',
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -290,8 +308,9 @@ async function _fetchSegmentWithRetry({ download, seg, controller, throttle, pro
   const existing = await loadChunk(download.id, seg.index);
   if (existing) {
     seg.done      = true;
-    seg.received  = existing.byteLength;
-    progress.received += existing.byteLength;
+    const byteLength = (existing as any).size ?? (existing as any).byteLength ?? 0;
+    seg.received  = byteLength;
+    progress.received += byteLength;
     emit();
     return;
   }
@@ -349,8 +368,10 @@ async function _fetchSegmentOnce({ download, seg, controller, throttle, progress
     }
   }
 
-  const merged = _mergeUint8Arrays(pieces);
-  await saveChunk(download.id, seg.index, merged.buffer as ArrayBuffer);
+  // Zero-copy segment Blob creation & store directly to disk
+  const segBlob = new Blob(pieces as BlobPart[]);
+  pieces.length = 0; // immediate GC cleanup
+  await saveChunk(download.id, seg.index, segBlob);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -388,17 +409,6 @@ function _makeThrottle(kbps: number): (bytes: number) => Promise<void> {
 // ─────────────────────────────────────────────────────────────
 //  Internal helpers
 // ─────────────────────────────────────────────────────────────
-
-function _mergeUint8Arrays(arrays: Uint8Array[]): Uint8Array {
-  const total  = arrays.reduce((s, a) => s + a.byteLength, 0);
-  const merged = new Uint8Array(total);
-  let   offset = 0;
-  for (const a of arrays) {
-    merged.set(a, offset);
-    offset += a.byteLength;
-  }
-  return merged;
-}
 
 function _sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {

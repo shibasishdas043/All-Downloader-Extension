@@ -66,6 +66,10 @@ export const MSG = Object.freeze({
   START_QUEUED_NOW:    'START_QUEUED_NOW',
   CLEAR_QUEUE:         'CLEAR_QUEUE',
   SHOW_IN_FOLDER:      'SHOW_IN_FOLDER',
+
+  // Offscreen document messaging (Zero-copy Blob URL generation)
+  OFFSCREEN_CREATE_BLOB_URL: 'OFFSCREEN_CREATE_BLOB_URL',
+  OFFSCREEN_REVOKE_BLOB_URL: 'OFFSCREEN_REVOKE_BLOB_URL',
 } as const);
 
 // ── Storage Keys ─────────────────────────────────────────────

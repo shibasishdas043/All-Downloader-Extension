@@ -32,6 +32,12 @@ export interface ChunkInfo {
   blob?: Blob;
 }
 
+export interface DownloadResult {
+  chunkCount: number;
+  totalSize: number;
+  mimeType?: string;
+}
+
 export interface DownloadItem {
   id: string;
   url: string;

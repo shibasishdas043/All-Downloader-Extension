@@ -2,11 +2,11 @@
 // ============================================================
 //  All-Downloader — Dashboard Script
 // ============================================================
-import { MSG, DOWNLOAD_STATE, DEFAULT_SETTINGS } from '../shared/constants.js';
+import { MSG, DOWNLOAD_STATE, DEFAULT_SETTINGS, FILE_CATEGORY } from '../shared/constants.js';
 import {
   formatBytes, formatSpeed, formatETA,
   truncateName, getExtension,
-  relativeTime, isValidUrl
+  relativeTime, isValidUrl, detectCategory
 } from '../shared/utils.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -28,9 +28,26 @@ let debounceQueueSliderTimer: any = null;
 let histSortCol = 'time';
 let histSortDir = 'desc';
 
-// High-performance RAF throttle queues (Zero GC pressure)
+// Pagination state (Capping DOM node count to keep RAM bounded < 15MB)
+let currentPage = 1;
+const PAGE_SIZE = 50;
+let histCurrentPage = 1;
+const HIST_PAGE_SIZE = 50;
+
+// High-performance RAF throttle queues & element reference cache (Zero GC churn)
 const pendingProgressIds = new Set();
 let rafScheduled = false;
+
+interface CachedRowRefs {
+  tr: HTMLElement;
+  fill: HTMLElement | null;
+  label: HTMLElement | null;
+  sizeCell: HTMLElement | null;
+  speed: HTMLElement | null;
+  eta: HTMLElement | null;
+  statusCol: HTMLElement | null;
+}
+const rowCache = new Map<string, CachedRowRefs>();
 
 // ─────────────────────────────────────────────────────────────
 //  Init
@@ -42,9 +59,16 @@ async function init() {
     sendMsg({ type: MSG.GET_SETTINGS }),
   ]);
 
-  if (dlRes?.downloads)  dlRes.downloads.forEach(d => downloads[d.id] = d);
+  if (setRes?.settings) settings = setRes.settings;
+
+  if (dlRes?.downloads) {
+    // Memory optimization: Prune items exceeding maxHistoryItems to bound memory footprint
+    const maxItems = settings?.maxHistoryItems || 500;
+    const sorted = dlRes.downloads.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    const kept = sorted.slice(0, maxItems);
+    kept.forEach(d => downloads[d.id] = d);
+  }
   if (dlRes?.queueOrder) latestQueueOrder = dlRes.queueOrder;
-  if (setRes?.settings)  settings = setRes.settings;
 
   // Listen for live updates
   chrome.runtime.onMessage.addListener(handleSWMessage);
@@ -138,38 +162,22 @@ function flushProgressUpdates() {
     return;
   }
 
-  const tbody = document.getElementById('dl-tbody');
-  if (!tbody) {
-    pendingProgressIds.clear();
-    return;
-  }
-
   for (const id of pendingProgressIds) {
     const dl = downloads[id];
     if (!dl) continue;
-    const tr = tbody.querySelector(`tr[data-id="${id}"]`);
-    if (!tr) continue;
+    const refs = rowCache.get(id);
+    if (!refs || !refs.tr.isConnected) continue;
 
-    // Mutate only changed text & styles in-place
-    const fill = tr.querySelector('.tbl-progress-fill');
-    if (fill) fill.style.width = `${dl.percent || 0}%`;
+    // Mutate in-place using cached element references — zero DOM querying & zero layout thrashing
+    if (refs.fill) refs.fill.style.width = `${dl.percent || 0}%`;
+    if (refs.label) refs.label.textContent = `${dl.percent || 0}%`;
+    if (refs.sizeCell && dl.total > 0) refs.sizeCell.textContent = formatBytes(dl.total);
+    if (refs.speed) refs.speed.textContent = dl.state === DOWNLOAD_STATE.DOWNLOADING ? formatSpeed(dl.speed) : '—';
+    if (refs.eta) refs.eta.textContent = (dl.state === DOWNLOAD_STATE.DOWNLOADING && dl.eta) ? formatETA(dl.eta) : '—';
 
-    const label = tr.querySelector('.tbl-progress-label');
-    if (label) label.textContent = `${dl.percent || 0}%`;
-
-    const sizeCell = tr.querySelector('.col-size');
-    if (sizeCell && dl.total > 0) sizeCell.textContent = formatBytes(dl.total);
-
-    const speed = tr.querySelector('.speed-cell');
-    if (speed) speed.textContent = dl.state === DOWNLOAD_STATE.DOWNLOADING ? formatSpeed(dl.speed) : '—';
-
-    const eta = tr.querySelector('.col-eta');
-    if (eta) eta.textContent = (dl.state === DOWNLOAD_STATE.DOWNLOADING && dl.eta) ? formatETA(dl.eta) : '—';
-
-    const statusCol = tr.querySelector('.col-status');
-    if (statusCol && statusCol.dataset.state !== dl.state) {
-      statusCol.dataset.state = dl.state;
-      statusCol.innerHTML = buildStateBadge(dl.state);
+    if (refs.statusCol && refs.statusCol.dataset.state !== dl.state) {
+      refs.statusCol.dataset.state = dl.state;
+      refs.statusCol.innerHTML = buildStateBadge(dl.state);
     }
   }
 
@@ -195,6 +203,15 @@ function renderView(view) {
   currentView = view;
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById(`view-${view}`)?.classList.add('active');
+
+  // Memory optimization: deallocate canvas backing store when switching away from stats
+  if (view !== 'stats') {
+    const canvas = document.getElementById('chart-category');
+    if (canvas && (canvas.width > 1 || canvas.height > 1)) {
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+  }
 
   const titles = {
     downloads: ['Downloads', 'All active & recent'],
@@ -299,6 +316,7 @@ function renderDownloadsTable() {
 
   if (!tbody) return;
   tbody.innerHTML = '';
+  rowCache.clear();
 
   if (list.length === 0) {
     if (empty) {
@@ -316,6 +334,7 @@ function renderDownloadsTable() {
         }
       }
     }
+    renderPaginationControls(0, 1, 1, 'dl-pagination', () => {});
     updateSelectAllCheckbox(list);
     updateBulkBar();
     return;
@@ -328,12 +347,25 @@ function renderDownloadsTable() {
     if (!downloads[id]) selected.delete(id);
   }
 
+  // Bounded pagination: only keep active page DOM nodes in memory
+  const totalPages = Math.ceil(list.length / PAGE_SIZE) || 1;
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  const startIdx = (currentPage - 1) * PAGE_SIZE;
+  const pageSlice = list.slice(startIdx, startIdx + PAGE_SIZE);
+
   const frag = document.createDocumentFragment();
   let i = 0;
-  for (const dl of list) {
+  for (const dl of pageSlice) {
     frag.appendChild(buildRow(dl, i++));
   }
   tbody.appendChild(frag);
+
+  renderPaginationControls(list.length, currentPage, totalPages, 'dl-pagination', (newPage) => {
+    currentPage = newPage;
+    renderDownloadsTable();
+  });
 
   updateSelectAllCheckbox(list);
   updateBulkBar();
@@ -383,6 +415,17 @@ function buildRow(dl, index = 0) {
       <div class="row-actions">${buildRowActions(dl)}</div>
     </td>
   `;
+
+  // Retain element references in cache to prevent querySelector layout thrashing during animations
+  rowCache.set(dl.id, {
+    tr,
+    fill: tr.querySelector('.tbl-progress-fill'),
+    label: tr.querySelector('.tbl-progress-label'),
+    sizeCell: tr.querySelector('.col-size'),
+    speed: tr.querySelector('.speed-cell'),
+    eta: tr.querySelector('.col-eta'),
+    statusCol: tr.querySelector('.col-status'),
+  });
 
   return tr;
 }
@@ -590,6 +633,7 @@ function renderHistory() {
 
   // 4. Empty State Handling
   if (list.length === 0) {
+    renderPaginationControls(0, 1, 1, 'history-pagination', () => {});
     tbody.innerHTML = `
       <tr>
         <td colspan="5" style="border:none !important; padding:0 !important; background:transparent !important;">
@@ -609,9 +653,17 @@ function renderHistory() {
     return;
   }
 
-  // 5. High-Performance Batched DOM Insertion
+  // 5. Paginated DOM Insertion
+  const totalPages = Math.ceil(list.length / HIST_PAGE_SIZE) || 1;
+  if (histCurrentPage > totalPages) histCurrentPage = totalPages;
+  if (histCurrentPage < 1) histCurrentPage = 1;
+
+  const startIdx = (histCurrentPage - 1) * HIST_PAGE_SIZE;
+  const pageSlice = list.slice(startIdx, startIdx + HIST_PAGE_SIZE);
+
+  tbody.innerHTML = '';
   const frag = document.createDocumentFragment();
-  list.forEach((dl, idx) => {
+  pageSlice.forEach((dl, idx) => {
     const ext = getExtension(dl.filename);
     const badgeMarkup = ext
       ? ext.slice(0, 4).toUpperCase()
@@ -661,6 +713,11 @@ function renderHistory() {
   });
 
   tbody.appendChild(frag);
+
+  renderPaginationControls(list.length, histCurrentPage, totalPages, 'history-pagination', (newPage) => {
+    histCurrentPage = newPage;
+    renderHistory();
+  });
 }
 
 function bindHistory() {
@@ -975,6 +1032,7 @@ async function renderStats() {
 }
 
 function drawCategoryChart(allDownloads) {
+  if (currentView !== 'stats') return;
   const canvas       = document.getElementById('chart-category');
   const distBar      = document.getElementById('cat-distribution-bar');
   const pillsWrap    = document.getElementById('cat-pills-wrap');
@@ -1465,11 +1523,66 @@ function escHtml(str) {
   return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function renderPaginationControls(
+  totalCount: number,
+  page: number,
+  totalPages: number,
+  containerId: string,
+  onPageChange: (p: number) => void
+) {
+  let container = document.getElementById(containerId);
+  if (!container) {
+    container = document.createElement('div');
+    container.id = containerId;
+    container.className = 'table-pagination-bar';
+    const targetWrapId = containerId === 'dl-pagination' ? 'table-wrap' : 'history-table-wrap';
+    const tableWrap = document.getElementById(targetWrapId);
+    if (tableWrap) tableWrap.appendChild(container);
+    else return;
+  }
+
+  if (totalCount <= PAGE_SIZE) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+
+  container.hidden = false;
+  const startItem = (page - 1) * PAGE_SIZE + 1;
+  const endItem   = Math.min(page * PAGE_SIZE, totalCount);
+
+  container.innerHTML = `
+    <span class="pagination-info">Showing ${startItem}–${endItem} of ${totalCount}</span>
+    <div class="pagination-buttons">
+      <button class="pagination-btn" id="${containerId}-prev" ${page <= 1 ? 'disabled' : ''}>
+        ← Prev
+      </button>
+      <span class="pagination-current">Page ${page} of ${totalPages}</span>
+      <button class="pagination-btn" id="${containerId}-next" ${page >= totalPages ? 'disabled' : ''}>
+        Next →
+      </button>
+    </div>
+  `;
+
+  container.querySelector(`#${containerId}-prev`)?.addEventListener('click', () => {
+    if (page > 1) onPageChange(page - 1);
+  });
+  container.querySelector(`#${containerId}-next`)?.addEventListener('click', () => {
+    if (page < totalPages) onPageChange(page + 1);
+  });
+}
+
 // ─────────────────────────────────────────────────────────────
 //  Window Resize & Boot
 // ─────────────────────────────────────────────────────────────
+let resizeTimer: any = null;
 window.addEventListener('resize', () => {
-  if (currentView === 'stats') renderStats();
+  if (currentView === 'stats') {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (currentView === 'stats') renderStats();
+    }, 150);
+  }
 });
 
 init().catch(console.error);
