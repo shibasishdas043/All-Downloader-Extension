@@ -7,8 +7,8 @@
 
 /* ── Tokens: Refined Modern Minimalist ─────────────────────────── */
 :root {
-  --geist-ink:    #111827;
-  --geist-gray:   #9ca3af;
+  --geist-ink:    #0f172a;
+  --geist-gray:   #475569;
   --geist-canvas: #f8fafc;
 
   --bg-app:        #f1f5f9;
@@ -489,20 +489,20 @@ body {
 
 .dl-item[data-state="paused"] .dl-state-badge {
   display: block;
-  background: var(--geist-gray);
+  background: #b45309;
   color: var(--text-on-dark);
 }
 
 .dl-item[data-state="error"] .dl-state-badge {
   display: block;
-  background: var(--geist-ink);
+  background: #b91c1c;
   color: var(--text-on-dark);
 }
 
 .dl-item[data-state="completed"] .dl-state-badge {
   display: block;
-  background: var(--bg-pill);
-  color: var(--text-primary);
+  background: #047857;
+  color: #ffffff;
 }
 
 /* ── Footer ──────────────────────────────────────────────────── */
