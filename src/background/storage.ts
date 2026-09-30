@@ -28,15 +28,6 @@ function storageSet(data: Record<string, any>): Promise<void> {
   });
 }
 
-function storageRemove(keys: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.remove(keys, () => {
-      if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-      else resolve();
-    });
-  });
-}
-
 // ─────────────────────────────────────────────────────────────
 //  Downloads CRUD
 // ─────────────────────────────────────────────────────────────
@@ -84,12 +75,6 @@ export async function clearHistory(): Promise<void> {
     }
   }
   await saveDownloads(active);
-}
-
-/** Get downloads as sorted array (newest first). */
-export async function getDownloadList(): Promise<DownloadItem[]> {
-  const all = await loadDownloads();
-  return Object.values(all).sort((a, b) => b.createdAt - a.createdAt);
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -2,13 +2,12 @@
 // ============================================================
 //  All-Downloader — Dashboard Script
 // ============================================================
-import { MSG, DOWNLOAD_STATE, DEFAULT_SETTINGS, FILE_CATEGORY } from '../shared/constants.js';
+import { MSG, DOWNLOAD_STATE, DEFAULT_SETTINGS } from '../shared/constants.js';
 import {
   formatBytes, formatSpeed, formatETA,
-  truncateName, getExtension, calcPercent,
-  relativeTime, isValidUrl, detectCategory
+  truncateName, getExtension,
+  relativeTime, isValidUrl
 } from '../shared/utils.js';
-import type { DownloadItem, ExtensionSettings, DownloadState } from '../shared/types.js';
 
 // ─────────────────────────────────────────────────────────────
 //  State

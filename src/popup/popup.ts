@@ -7,7 +7,7 @@ import {
   truncateName, getExtension,
   isValidUrl
 } from '../shared/utils.js';
-import type { DownloadItem, DownloadState } from '../shared/types.js';
+import type { DownloadState } from '../shared/types.js';
 
 // ─────────────────────────────────────────────────────────────
 //  State

@@ -48,7 +48,6 @@ export const MSG = Object.freeze({
   DOWNLOAD_PAUSED:     'DOWNLOAD_PAUSED',
   DOWNLOAD_RESUMED:    'DOWNLOAD_RESUMED',
   DOWNLOAD_CANCELLED:  'DOWNLOAD_CANCELLED',
-  STATE_SNAPSHOT:      'STATE_SNAPSHOT',
 
   // UI → SW
   GET_DOWNLOADS:       'GET_DOWNLOADS',
@@ -98,11 +97,3 @@ export const UI = Object.freeze({
   SPEED_SAMPLE_WINDOW: 3000, // ms window for speed average
 } as const);
 
-// ── Color Palette ─────────────────────────────────────────────
-export const COLORS = Object.freeze({
-  skyBlue: '#8ecae6',
-  ocean:   '#219ebc',
-  navy:    '#023047',
-  amber:   '#ffb703',
-  orange:  '#fb8500',
-} as const);

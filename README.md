@@ -42,14 +42,14 @@
 All-Downloader-Extension/
 ├── manifest.json               ← MV3 manifest
 ├── tsconfig.json               ← TypeScript config
-├── vitest.config.ts            ← Vitest config
+├── tsconfig.test.json          ← Test typings config
+├── vite.config.ts              ← Vite + Vitest unified config
 ├── src/
 │   ├── background/
 │   │   ├── service-worker.ts   ← Main SW + message router (TS source)
 │   │   ├── download-engine.ts  ← Fetch + chunk + pause/resume (TS source)
 │   │   ├── queue-manager.ts    ← Priority queue + scheduler (TS source)
 │   │   ├── speed-tracker.ts    ← Rolling-window speed/ETA (TS source)
-│   │   ├── integrity.ts        ← SHA-256 (SubtleCrypto) (TS source)
 │   │   └── storage.ts          ← chrome.storage + IndexedDB (TS source)
 │   ├── popup/                  ← Compact 380px popup (popup.ts, popup.html, popup.css)
 │   ├── dashboard/              ← Full-page SPA dashboard (dashboard.ts, dashboard.html, dashboard.css)
@@ -66,11 +66,12 @@ All-Downloader-Extension/
 
 ## 🚀 Load in Chrome (Developer Mode)
 
-1. Open `chrome://extensions`
-2. Enable **Developer Mode** (top right)
-3. Click **Load Unpacked**
-4. Select this folder (`All-Downloader-Extension/`) or `dist/`
-5. Pin the extension to the toolbar
+1. Run `npm run build` (or `npm run dev` during development)
+2. Open `chrome://extensions`
+3. Enable **Developer Mode** (top right)
+4. Click **Load Unpacked**
+5. Select the **`dist/`** folder
+6. Pin the extension to the toolbar
 
 ---
 
@@ -78,10 +79,11 @@ All-Downloader-Extension/
 
 ```bash
 npm install         # Install dev dependencies
+npm run dev         # Watch mode: live build on changes (vite build --watch)
 npm run typecheck   # Type-check TypeScript sources (tsc --noEmit)
 npm test            # Run unit tests with Vitest
-npm run bundle      # Bundle TS sources into target JS scripts
-npm run build       # Full build: typecheck + bundle + package to dist/ & zip
+npm run bundle      # Fast bundle with Vite (npx vite build)
+npm run build       # Full build: typecheck + Vite build + package dist/ & zip
 ```
 
 ---

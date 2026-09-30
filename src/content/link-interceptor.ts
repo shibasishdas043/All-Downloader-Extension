@@ -143,17 +143,4 @@ declare global {
     tooltip.style.color = '#ffb703';
     setTimeout(() => hideTooltip(), 1200);
   });
-
-  // ── Intercept download attribute clicks ──────────────────
-  document.addEventListener('click', (e: MouseEvent) => {
-    const target = e.target as HTMLElement | null;
-    const a = target?.closest('a[download]') as HTMLAnchorElement | null;
-    if (!a || !a.href) return;
-
-    try {
-      const url = new URL(a.href);
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
-    } catch { return; }
-  });
-
 })();

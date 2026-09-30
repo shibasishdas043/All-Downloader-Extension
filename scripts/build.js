@@ -1,12 +1,12 @@
 // ============================================================
 //  All Downloader — Build Script
-//  Copies all extension files to /dist, validates integrity,
-//  generates a ready-to-upload .zip, and prints a full report.
+//  Runs TypeScript validation, triggers Vite build,
+//  validates extension manifest integrity, and packages zip.
 // ============================================================
-import fs   from 'fs';
+import fs from 'fs';
 import path from 'path';
-import { fileURLToPath }  from 'url';
-import { execSync }       from 'child_process';
+import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -15,23 +15,6 @@ const ROOT = path.join(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 const ZIP  = path.join(ROOT, 'all-downloader.zip');
 
-// ── What to include in the final extension package ──────────
-const INCLUDE = [
-  'manifest.json',
-  'src',
-  '_locales',
-];
-
-// ── Files/extensions to silently exclude from the copy ──────
-const EXCLUDE_NAMES = new Set([
-  '.DS_Store', 'Thumbs.db', 'desktop.ini',
-  '.gitkeep', '.gitignore',
-]);
-const EXCLUDE_EXTS = new Set([
-  '.map',   // source maps — not needed in the extension
-  '.ts',    // typescript sources — compiled into .js bundles
-]);
-
 // ── Helper: human-readable file size ─────────────────────────
 function fmtBytes(bytes) {
   if (bytes < 1024)        return `${bytes} B`;
@@ -39,37 +22,9 @@ function fmtBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-// ── Helper: recursive copy (respects EXCLUDE lists) ──────────
-let filesCopied = 0;
-let bytesCopied = 0;
-const copiedFiles = [];
-
-function copyRecursive(src, dest) {
-  const name = path.basename(src);
-  const ext  = path.extname(src).toLowerCase();
-
-  if (EXCLUDE_NAMES.has(name) || EXCLUDE_EXTS.has(ext)) return;
-
-  const stat = fs.statSync(src);
-
-  if (stat.isDirectory()) {
-    fs.mkdirSync(dest, { recursive: true });
-    for (const child of fs.readdirSync(src)) {
-      copyRecursive(path.join(src, child), path.join(dest, child));
-    }
-  } else {
-    fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
-    filesCopied++;
-    bytesCopied += stat.size;
-    copiedFiles.push({ rel: path.relative(DIST, dest), size: stat.size });
-  }
-}
-
 // ── Helper: extract every string value from a manifest object ─
 function collectManifestPaths(obj, results = []) {
   if (typeof obj === 'string') {
-    // Strip glob wildcards — we validate the directory instead
     const clean = obj.replace(/\*.*$/, '');
     if (clean) results.push(clean);
   } else if (Array.isArray(obj)) {
@@ -78,6 +33,29 @@ function collectManifestPaths(obj, results = []) {
     Object.values(obj).forEach(v => collectManifestPaths(v, results));
   }
   return results;
+}
+
+// ── Helper: calculate total files and directory size ─────────
+function getDirStats(dirPath) {
+  let fileCount = 0;
+  let totalSize = 0;
+
+  function walk(current) {
+    if (!fs.existsSync(current)) return;
+    const entries = fs.readdirSync(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        fileCount++;
+        totalSize += fs.statSync(full).size;
+      }
+    }
+  }
+
+  walk(dirPath);
+  return { fileCount, totalSize };
 }
 
 // ── Step 1: Parse & validate manifest.json ───────────────────
@@ -114,19 +92,13 @@ try {
 
   execSync('npx vite build', { cwd: ROOT, stdio: 'inherit' });
   console.log('  ✓  Vite bundle successfully generated in dist/.');
-} catch (err) {
+} catch {
   console.error('\n❌  TypeScript check or Vite build failed.');
   process.exit(1);
 }
 
 // ── Step 4: Verify all manifest-referenced paths exist ────────
 console.log('\n🔍  Verifying manifest references...');
-const skipKeys = new Set(['matches', 'permissions', 'host_permissions', 'commands',
-                          'description', 'author', 'homepage_url', 'default_locale',
-                          'default_title', 'suggested_key', 'run_at', 'type',
-                          'manifest_version', 'name', 'version']);
-
-// Collect only path-like strings (start with src/ or have an extension)
 const allValues = collectManifestPaths(manifest);
 const pathsToCheck = [...new Set(
   allValues.filter(v =>
@@ -155,16 +127,13 @@ if (verifyFailed) {
 console.log('\n🗜   Generating zip...');
 if (fs.existsSync(ZIP)) fs.rmSync(ZIP);
 
-// Use PowerShell Compress-Archive (cross-platform fallback on Windows)
 try {
   const distNorm = DIST.replace(/\\/g, '/');
   const zipNorm  = ZIP.replace(/\\/g, '/');
 
-  // Try native zip first (Linux/macOS), fall back to PowerShell (Windows)
   try {
     execSync(`zip -r "${zipNorm}" .`, { cwd: DIST, stdio: 'pipe' });
   } catch {
-    // PowerShell fallback
     execSync(
       `powershell -Command "Compress-Archive -Path '${distNorm}\\*' -DestinationPath '${zipNorm}' -Force"`,
       { stdio: 'pipe' }
@@ -175,12 +144,12 @@ try {
   console.log(`  ✓  all-downloader.zip  (${fmtBytes(zipSize)})`);
 } catch (err) {
   console.warn(`  ⚠  Could not generate ZIP automatically: ${err.message}`);
-  console.warn('     Run manually: cd dist && zip -r ../all-downloader.zip .');
 }
 
 // ── Step 6: Summary report ────────────────────────────────────
+const stats = getDirStats(DIST);
 console.log('\n' + '─'.repeat(48));
-console.log(`  Files copied : ${filesCopied}`);
-console.log(`  Total size   : ${fmtBytes(bytesCopied)}`);
+console.log(`  Total dist files : ${stats.fileCount}`);
+console.log(`  Total dist size  : ${fmtBytes(stats.totalSize)}`);
 console.log('─'.repeat(48));
 console.log('\n✅  Build complete → dist/\n');

@@ -101,15 +101,3 @@ export function relativeTime(timestamp: number): string {
   if (diff < 86_400_000)  return `${Math.floor(diff / 3_600_000)} hr ago`;
   return new Date(timestamp).toLocaleDateString();
 }
-
-// ── Content-Disposition parser ────────────────────────────────
-export function parseContentDisposition(header: string | null | undefined): string | null {
-  if (!header) return null;
-  const match = header.match(/filename\*?=["']?(?:UTF-8'')?([^;"'\n]+)/i);
-  return match ? decodeURIComponent(match[1]?.trim() || '') : null;
-}
-
-// ── Sleep helper ──────────────────────────────────────────────
-export function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}

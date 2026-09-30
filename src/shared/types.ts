@@ -77,9 +77,3 @@ export interface ExtensionStats {
   totalCompletedFiles: number;
   totalFailedFiles: number;
 }
-
-export interface QueueStatus {
-  activeCount: number;
-  queuedCount: number;
-  queueOrder: string[];
-}

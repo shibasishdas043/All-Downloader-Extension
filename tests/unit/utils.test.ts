@@ -73,3 +73,15 @@ describe('isValidUrl', () => {
   test('ftp invalid', () => expect(isValidUrl('ftp://x.com')).toBe(false));
   test('plain text',  () => expect(isValidUrl('not a url')).toBe(false));
 });
+
+describe('relativeTime', () => {
+  test('just now for recent timestamp', () => {
+    expect(relativeTime(Date.now() - 10_000)).toBe('Just now');
+  });
+  test('minutes ago', () => {
+    expect(relativeTime(Date.now() - 5 * 60_000)).toBe('5 min ago');
+  });
+  test('hours ago', () => {
+    expect(relativeTime(Date.now() - 3 * 3_600_000)).toBe('3 hr ago');
+  });
+});
