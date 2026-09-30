@@ -4,7 +4,7 @@
 import {
   formatBytes, formatSpeed, formatETA,
   getFilenameFromUrl, getExtension, truncateName,
-  detectCategory, generateId, calcPercent, isValidUrl,
+  detectCategory, detectCategoryFromMime, generateId, calcPercent, isValidUrl,
   relativeTime
 } from '../../src/shared/utils.ts';
 
@@ -53,6 +53,42 @@ describe('detectCategory', () => {
   test('zip → archive', () => expect(detectCategory('archive.zip')).toBe('archive'));
   test('exe → application', () => expect(detectCategory('setup.exe')).toBe('application'));
   test('unknown → other',   () => expect(detectCategory('file.xyz')).toBe('other'));
+
+  // MIME fallback tests
+  test('unlisted extension with video MIME → video', () => {
+    expect(detectCategory('stream_chunk.xyz', 'video/mp2t')).toBe('video');
+  });
+  test('unlisted extension with image MIME → image', () => {
+    expect(detectCategory('custom_image.unknown', 'image/avif')).toBe('image');
+  });
+  test('no extension with audio MIME → audio', () => {
+    expect(detectCategory('sound_stream', 'audio/ogg')).toBe('audio');
+  });
+  test('no extension with document MIME → document', () => {
+    expect(detectCategory('manual', 'application/pdf')).toBe('document');
+  });
+  test('unlisted extension with archive MIME → archive', () => {
+    expect(detectCategory('pkg.backup', 'application/x-7z-compressed')).toBe('archive');
+  });
+  test('parameterized Content-Type (charset/codecs) → document', () => {
+    expect(detectCategory('data', 'text/html; charset=UTF-8')).toBe('document');
+  });
+  test('application/octet-stream fallback remains other if extension unknown', () => {
+    expect(detectCategory('blob.xyz', 'application/octet-stream')).toBe('other');
+  });
+  test('known extension overrides generic octet-stream MIME', () => {
+    expect(detectCategory('video.mp4', 'application/octet-stream')).toBe('video');
+  });
+});
+
+describe('detectCategoryFromMime', () => {
+  test('video/webm → video', () => expect(detectCategoryFromMime('video/webm')).toBe('video'));
+  test('application/x-matroska → video', () => expect(detectCategoryFromMime('application/x-matroska')).toBe('video'));
+  test('audio/aac → audio', () => expect(detectCategoryFromMime('audio/aac')).toBe('audio'));
+  test('image/webp → image', () => expect(detectCategoryFromMime('image/webp')).toBe('image'));
+  test('application/epub+zip → document', () => expect(detectCategoryFromMime('application/epub+zip')).toBe('document'));
+  test('application/x-msdownload → application', () => expect(detectCategoryFromMime('application/x-msdownload')).toBe('application'));
+  test('null/empty → other', () => expect(detectCategoryFromMime('')).toBe('other'));
 });
 
 describe('generateId', () => {

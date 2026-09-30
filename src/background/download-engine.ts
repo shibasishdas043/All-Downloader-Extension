@@ -31,6 +31,7 @@ const _registry = new Map<string, ActiveRegistryEntry>();
 export type ProgressCallback = (id: string, received: number, total: number, speedSnap: SpeedSnapshot) => void;
 export type CompleteCallback = (id: string, result: DownloadResult, filename: string) => Promise<void> | void;
 export type ErrorCallback = (id: string, errorMessage: string) => void;
+export type MetaCallback = (meta: { filename: string; mimeType: string | null; totalSize: number }) => Promise<void> | void;
 
 interface ProgressState {
   received: number;
@@ -46,7 +47,8 @@ export async function startDownload(
   settings: ExtensionSettings,
   onProgress: ProgressCallback,
   onComplete: CompleteCallback,
-  onError: ErrorCallback
+  onError: ErrorCallback,
+  onMeta?: MetaCallback
 ): Promise<void> {
   _cancelExisting(download.id);
 
@@ -59,6 +61,15 @@ export async function startDownload(
     const totalSize     = meta.contentLength;
     const acceptsRanges = meta.acceptsRanges;
     const filename      = meta.filename || download.filename;
+    const mimeType      = meta.mimeType || download.mimeType || null;
+
+    if (onMeta) {
+      try {
+        await onMeta({ filename, mimeType, totalSize });
+      } catch (err) {
+        console.warn('[ADL] onMeta callback error:', err);
+      }
+    }
 
     const canChunk =
       acceptsRanges &&
@@ -85,11 +96,11 @@ export async function startDownload(
     let result: DownloadResult;
     if (canChunk) {
       result = await _chunkedDownload({
-        download, totalSize, settings, controller, throttle, progress, emit,
+        download, totalSize, mimeType: mimeType || 'application/octet-stream', settings, controller, throttle, progress, emit,
       });
     } else {
       result = await _singleDownload({
-        download, controller, throttle, progress, emit,
+        download, fallbackMime: mimeType || 'application/octet-stream', controller, throttle, progress, emit,
       });
     }
 
@@ -134,6 +145,7 @@ interface ProbeMeta {
   contentLength: number;
   acceptsRanges: boolean;
   filename: string | null;
+  mimeType: string | null;
 }
 
 async function _probe(url: string, signal: AbortSignal): Promise<ProbeMeta> {
@@ -159,21 +171,23 @@ async function _probe(url: string, signal: AbortSignal): Promise<ProbeMeta> {
         redirect:    'follow',
       });
     } catch {
-      return { contentLength: 0, acceptsRanges: false, filename: null };
+      return { contentLength: 0, acceptsRanges: false, filename: null, mimeType: null };
     }
   } finally {
     clearTimeout(timer);
   }
 
   if (!res || !res.ok) {
-    return { contentLength: 0, acceptsRanges: false, filename: null };
+    return { contentLength: 0, acceptsRanges: false, filename: null, mimeType: null };
   }
 
-  const contentLength = _parseContentLength(res);
-  const acceptsRanges = (res.headers.get('Accept-Ranges') || '').toLowerCase() === 'bytes';
-  const filename      = _parseFilename(res, url);
+  const contentLength   = _parseContentLength(res);
+  const acceptsRanges   = (res.headers.get('Accept-Ranges') || '').toLowerCase() === 'bytes';
+  const filename        = _parseFilename(res, url);
+  const rawContentType = res.headers.get('Content-Type') || '';
+  const mimeType        = rawContentType.split(';')[0].trim().toLowerCase() || null;
 
-  return { contentLength, acceptsRanges, filename };
+  return { contentLength, acceptsRanges, filename, mimeType };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -182,13 +196,14 @@ async function _probe(url: string, signal: AbortSignal): Promise<ProbeMeta> {
 
 interface SingleDownloadParams {
   download: DownloadItem;
+  fallbackMime?: string;
   controller: AbortController;
   throttle: (bytes: number) => Promise<void>;
   progress: ProgressState;
   emit: () => void;
 }
 
-async function _singleDownload({ download, controller, throttle, progress, emit }: SingleDownloadParams): Promise<DownloadResult> {
+async function _singleDownload({ download, fallbackMime, controller, throttle, progress, emit }: SingleDownloadParams): Promise<DownloadResult> {
   const res = await fetch(download.url, {
     signal:      controller.signal,
     credentials: 'include',
@@ -198,7 +213,8 @@ async function _singleDownload({ download, controller, throttle, progress, emit 
   if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
   if (!res.body) throw new Error('Response body is null');
 
-  const mimeType = res.headers.get('Content-Type') || 'application/octet-stream';
+  const rawMime  = res.headers.get('Content-Type') || '';
+  const mimeType = rawMime.split(';')[0].trim().toLowerCase() || fallbackMime || 'application/octet-stream';
   const reader   = res.body.getReader();
 
   // Stream into IndexedDB in bounded 16 MB chunks so memory never exceeds 16 MB
@@ -246,6 +262,7 @@ async function _singleDownload({ download, controller, throttle, progress, emit 
 interface ChunkedDownloadParams {
   download: DownloadItem;
   totalSize: number;
+  mimeType: string;
   settings: ExtensionSettings;
   controller: AbortController;
   throttle: (bytes: number) => Promise<void>;
@@ -253,7 +270,7 @@ interface ChunkedDownloadParams {
   emit: () => void;
 }
 
-async function _chunkedDownload({ download, totalSize, settings, controller, throttle, progress, emit }: ChunkedDownloadParams): Promise<DownloadResult> {
+async function _chunkedDownload({ download, totalSize, mimeType, settings, controller, throttle, progress, emit }: ChunkedDownloadParams): Promise<DownloadResult> {
   const numSegs = Math.max(
     1,
     Math.min(
@@ -287,7 +304,7 @@ async function _chunkedDownload({ download, totalSize, settings, controller, thr
   return {
     chunkCount: segments.length,
     totalSize,
-    mimeType: 'application/octet-stream',
+    mimeType: mimeType || 'application/octet-stream',
   };
 }
 

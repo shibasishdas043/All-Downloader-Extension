@@ -260,7 +260,7 @@ function getFilteredDownloads() {
     list = list.filter(d => {
       const cat = (d.category && d.category !== FILE_CATEGORY.OTHER)
         ? d.category
-        : detectCategory(d.filename || '');
+        : detectCategory(d.filename || '', (d as any).mimeType);
       return cat === activeCat;
     });
   }
@@ -272,7 +272,7 @@ function getFilteredDownloads() {
       const name = (d.filename || '').toLowerCase();
       const url  = (d.url || '').toLowerCase();
       const ext  = (getExtension(d.filename || '')).toLowerCase();
-      const cat  = (d.category || detectCategory(d.filename || '')).toLowerCase();
+      const cat  = (d.category || detectCategory(d.filename || '', (d as any).mimeType)).toLowerCase();
       const target = `${name} ${url} ${ext} ${cat}`;
       return tokens.every(t => target.includes(t));
     });
@@ -604,7 +604,7 @@ function renderHistory() {
   if (searchQuery) {
     const tokens = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
     list = list.filter(dl => {
-      const text = `${dl.filename || ''} ${dl.url || ''} ${dl.category || detectCategory(dl.filename) || ''} ${getExtension(dl.filename) || ''}`.toLowerCase();
+      const text = `${dl.filename || ''} ${dl.url || ''} ${dl.category || detectCategory(dl.filename, (dl as any).mimeType) || ''} ${getExtension(dl.filename) || ''}`.toLowerCase();
       return tokens.every(token => text.includes(token));
     });
   }
@@ -617,8 +617,8 @@ function renderHistory() {
     } else if (histSortCol === 'size') {
       cmp = (a.total || a.received || 0) - (b.total || b.received || 0);
     } else if (histSortCol === 'category') {
-      const catA = (a.category || detectCategory(a.filename) || '').toLowerCase();
-      const catB = (b.category || detectCategory(b.filename) || '').toLowerCase();
+      const catA = (a.category || detectCategory(a.filename, (a as any).mimeType) || '').toLowerCase();
+      const catB = (b.category || detectCategory(b.filename, (b as any).mimeType) || '').toLowerCase();
       cmp = catA.localeCompare(catB);
     } else { // 'time'
       const timeA = a.completedAt || a.createdAt || 0;
@@ -691,7 +691,7 @@ function renderHistory() {
       </td>
       <td class="col-hist-size">${dl.total > 0 ? formatBytes(dl.total) : dl.received > 0 ? `~${formatBytes(dl.received)}` : '—'}</td>
       <td class="col-hist-cat">
-        <span class="chip">${escHtml((dl.category || detectCategory(dl.filename)).toUpperCase())}</span>
+        <span class="chip">${escHtml((dl.category || detectCategory(dl.filename, (dl as any).mimeType)).toUpperCase())}</span>
       </td>
       <td class="col-hist-time">
         <span>${relativeTime(dl.completedAt || dl.createdAt)}</span>
@@ -866,7 +866,7 @@ function renderQueue() {
       <div class="q-details">
         <span class="q-title" title="${escHtml(dl.filename)}">${escHtml(truncateName(dl.filename, 48))}</span>
         <div class="q-meta">
-          <span>${escHtml((dl.category || detectCategory(dl.filename)).toUpperCase())}</span>
+          <span>${escHtml((dl.category || detectCategory(dl.filename, (dl as any).mimeType)).toUpperCase())}</span>
           <span class="q-meta-dot">•</span>
           <span>${dl.total > 0 ? formatBytes(dl.total) : 'Size unknown'}</span>
           <span class="q-meta-dot">•</span>
@@ -1048,7 +1048,7 @@ function drawCategoryChart(allDownloads) {
   let totalCategorizedBytes = 0;
 
   for (const dl of allDownloads) {
-    const cat = (dl.category || detectCategory(dl.filename) || 'other').toLowerCase();
+    const cat = (dl.category || detectCategory(dl.filename, (dl as any).mimeType) || 'other').toLowerCase();
     if (!catStats[cat]) {
       catStats[cat] = { count: 0, bytes: 0 };
     }

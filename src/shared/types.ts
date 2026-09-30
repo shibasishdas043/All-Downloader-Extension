@@ -49,6 +49,7 @@ export interface DownloadItem {
   eta: number;
   status: DownloadState;
   category: FileCategory;
+  mimeType?: string | null;
   createdAt: number;
   completedAt?: number | null;
   errorMessage?: string | null;

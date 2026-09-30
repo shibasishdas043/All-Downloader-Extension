@@ -222,6 +222,7 @@ chrome.downloads.onCreated.addListener(async (item) => {
   await _addDownload({
     url: item.url,
     filename: item.filename || getFilenameFromUrl(item.url),
+    mimeType: item.mime || undefined,
     referrer: item.referrer || '',
   });
 });
@@ -427,17 +428,20 @@ interface AddDownloadOptions {
   url: string;
   filename?: string;
   referrer?: string;
+  mimeType?: string;
   scheduledAt?: number | null;
 }
 
-async function _addDownload({ url, filename, referrer = '', scheduledAt = null }: AddDownloadOptions): Promise<DownloadItem> {
+async function _addDownload({ url, filename, referrer = '', mimeType, scheduledAt = null }: AddDownloadOptions): Promise<DownloadItem> {
   const id = generateId();
   const name = filename || getFilenameFromUrl(url);
+  const detectedCategory = detectCategory(name, mimeType);
   const download: DownloadItem = {
     id,
     url,
     filename: name,
-    category: detectCategory(name),
+    category: detectedCategory,
+    mimeType: mimeType || null,
     filesize: 0,
     receivedBytes: 0,
     progress: 0,
@@ -508,6 +512,14 @@ async function _executeDownload(downloadId: string): Promise<void> {
 
         const safeFilename = _sanitizeFilename(finalFilename);
         const savePath = _buildSavePath(settings.defaultSavePath, safeFilename);
+        const resolvedMime = result.mimeType || dl.mimeType || null;
+        const resolvedCategory = detectCategory(safeFilename, resolvedMime);
+
+        // Update with final MIME type and category
+        await _updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
+          category: resolvedCategory,
+          mimeType: resolvedMime,
+        });
 
         // 1. Ensure Offscreen Document is active
         await ensureOffscreenDocument();
@@ -578,6 +590,25 @@ async function _executeDownload(downloadId: string): Promise<void> {
       });
       queue.markDone(id);
       _broadcast({ type: MSG.DOWNLOAD_ERROR, id, error: errorMsg });
+    },
+    async (meta) => {
+      // Server response headers arrived — resolve dynamic filename, MIME type, and category!
+      const detectedCat = detectCategory(meta.filename, meta.mimeType);
+      const updates: Record<string, any> = {
+        filename: meta.filename,
+        category: detectedCat,
+        mimeType: meta.mimeType,
+      };
+      if (meta.totalSize > 0) {
+        updates.total = meta.totalSize;
+        updates.filesize = meta.totalSize;
+      }
+      await _updateState(downloadId, DOWNLOAD_STATE.DOWNLOADING as DownloadState, updates);
+      _broadcast({
+        type: MSG.DOWNLOAD_PROGRESS,
+        id: downloadId,
+        ...updates,
+      });
     }
   );
 }

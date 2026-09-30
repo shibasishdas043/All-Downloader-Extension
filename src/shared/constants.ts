@@ -30,12 +30,12 @@ export const FILE_CATEGORY: Record<string, FileCategory> = Object.freeze({
 
 // ── Category MIME / extension mapping ────────────────────────
 export const CATEGORY_MAP: Record<string, readonly string[]> = Object.freeze({
-  video:       ['mp4','mkv','avi','mov','wmv','flv','webm','m4v','mpg','mpeg'],
-  audio:       ['mp3','aac','flac','wav','ogg','m4a','wma','opus'],
-  image:       ['jpg','jpeg','png','gif','webp','svg','bmp','ico','tiff'],
-  document:    ['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','csv','json','xml'],
-  archive:     ['zip','rar','7z','tar','gz','bz2','xz','iso'],
-  application: ['exe','msi','dmg','apk','deb','rpm','pkg'],
+  video:       ['mp4','mkv','avi','mov','wmv','flv','webm','m4v','mpg','mpeg','ts','m2ts','vob','3gp','ogv','rmvb','m4s'],
+  audio:       ['mp3','aac','flac','wav','ogg','m4a','wma','opus','alac','aiff','mka','mid','midi'],
+  image:       ['jpg','jpeg','png','gif','webp','svg','bmp','ico','tiff','avif','heic','heif','psd','ai','raw','eps'],
+  document:    ['pdf','doc','docx','xls','xlsx','ppt','pptx','txt','csv','json','xml','md','rtf','epub','mobi','odt','ods','odp'],
+  archive:     ['zip','rar','7z','tar','gz','bz2','xz','iso','tgz','tbz2','zst','lzma','cab','dmg','wim'],
+  application: ['exe','msi','dmg','apk','deb','rpm','pkg','run','appimage'],
 });
 
 // ── Message Types (Service Worker ↔ UI) ──────────────────────
