@@ -553,6 +553,36 @@ body {
   animation: framerViewEnter 0.32s var(--ease-out-expo) forwards;
 }
 
+/* Scrollable views (Settings, Stats, Queue) with padding & minimal scrollbar */
+#view-settings.view.active,
+#view-stats.view.active,
+#view-queue.view.active {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-bottom: 32px;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+#view-settings.view.active::-webkit-scrollbar,
+#view-stats.view.active::-webkit-scrollbar,
+#view-queue.view.active::-webkit-scrollbar {
+  width: 6px;
+}
+
+#view-settings.view.active::-webkit-scrollbar-track,
+#view-stats.view.active::-webkit-scrollbar-track,
+#view-queue.view.active::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#view-settings.view.active::-webkit-scrollbar-thumb,
+#view-stats.view.active::-webkit-scrollbar-thumb,
+#view-queue.view.active::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
+}
+
 /* ── Filter Tabs ─────────────────────────────────────────────── */
 .filter-tabs {
   display: flex;
@@ -1691,18 +1721,21 @@ th.sortable-hist.active-sort {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 16px;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .stat-card {
   background: var(--bg-card);
-  border-radius: var(--radius-md);
-  padding: 22px 20px;
+  border-radius: var(--radius-lg);
+  padding: 24px 22px 20px;
   text-align: center;
-  transition: transform var(--transition-slow), background var(--transition-slow);
+  transition: transform var(--transition-fast), background var(--transition-fast);
   animation: framerCardIn 0.38s var(--ease-out-expo) both;
   animation-delay: calc(var(--stagger, 0) * 40ms);
   cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .stat-card:hover {
@@ -1711,63 +1744,65 @@ th.sortable-hist.active-sort {
 }
 
 .stat-icon {
-  width: 38px;
-  height: 38px;
-  background: rgba(173, 181, 189, 0.16);
-  border-radius: var(--radius-sm);
+  width: 40px;
+  height: 40px;
+  background: #f1f5f9;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 12px;
-  color: var(--geist-ink);
+  margin: 0 auto 14px;
+  color: #0f172a;
   transition: all var(--transition-fast);
 }
 
 .stat-card:hover .stat-icon {
-  background: var(--geist-ink);
-  color: var(--text-on-dark);
+  background: #0f172a;
+  color: #ffffff;
 }
 
 .stat-icon svg {
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
 }
 
 /* Bold Display Mono Numbers */
 .stat-val {
-  font-size: 26px;
+  font-size: 28px;
   font-weight: 700;
   font-family: var(--mono);
-  letter-spacing: -0.8px;
-  color: var(--text-primary);
-  margin-bottom: 4px;
+  letter-spacing: -1px;
+  color: #0f172a;
+  line-height: 1.15;
+  margin-bottom: 6px;
 }
 
-/* Uppercase Mono Eyebrow from DESIGN.md */
+/* Uppercase Mono Eyebrow */
 .stat-label {
-  font-size: 10px;
-  color: var(--text-muted);
+  font-size: 10.5px;
+  color: #64748b;
   text-transform: uppercase;
   font-family: var(--mono);
-  font-weight: 600;
-  letter-spacing: 1.2px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
 }
 
 .section-title {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: -0.3px;
-  color: var(--text-primary);
+  letter-spacing: -0.4px;
+  color: #0f172a;
   margin: 0;
 }
 
 .chart-section {
   background: var(--bg-card);
-  border-radius: var(--radius-md);
-  padding: 24px 28px;
+  border-radius: var(--radius-lg);
+  padding: 26px 28px 24px;
   animation: framerGroupIn 0.35s var(--ease-out-expo) both;
   animation-delay: 150ms;
   width: 100%;
+  margin-bottom: 24px;
 }
 
 .chart-section-header {
@@ -1779,9 +1814,9 @@ th.sortable-hist.active-sort {
 }
 
 .chart-subtitle {
-  font-size: 11.5px;
-  color: var(--text-muted);
-  margin-top: 3px;
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 4px;
   letter-spacing: -0.1px;
 }
 
@@ -1791,76 +1826,81 @@ th.sortable-hist.active-sort {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.6px;
-  color: var(--geist-ink);
-  background: rgba(173, 181, 189, 0.2);
-  padding: 3px 10px;
+  color: #0f172a;
+  background: #e2e8f0;
+  padding: 4px 12px;
   border-radius: var(--radius-pill);
 }
 
 .cat-distribution-bar {
   display: flex;
-  height: 8px;
+  height: 10px;
   border-radius: var(--radius-pill);
   overflow: hidden;
-  background: rgba(173, 181, 189, 0.16);
-  margin-bottom: 18px;
-  gap: 2px;
+  background: #f1f5f9;
+  margin-bottom: 20px;
+  gap: 3px;
+  padding: 2px;
 }
 
 .cat-dist-segment {
   height: 100%;
-  border-radius: 2px;
+  border-radius: 99px;
   transition: width var(--transition-slow);
 }
 
 .cat-pills-wrap {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 22px;
+  gap: 10px;
+  margin-bottom: 24px;
 }
 
 .cat-metric-pill {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  background: rgba(173, 181, 189, 0.12);
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  font-size: 11.5px;
-  transition: background var(--transition-fast);
+  gap: 9px;
+  background: #f8fafc;
+  padding: 7px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+  border: 1px solid rgba(226, 232, 240, 0.8);
 }
 
 .cat-metric-pill:hover {
-  background: rgba(173, 181, 189, 0.22);
+  background: #f1f5f9;
+  transform: translateY(-1px);
 }
 
 .cat-pill-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  background: var(--geist-ink);
+  background: #0f172a;
   flex-shrink: 0;
 }
 
 .cat-pill-name {
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: 700;
+  color: #0f172a;
   text-transform: uppercase;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 10.5px;
   letter-spacing: 0.5px;
 }
 
 .cat-pill-stats {
   font-family: var(--mono);
-  font-size: 11px;
-  color: var(--text-muted);
+  font-size: 11.5px;
+  color: #64748b;
+  font-weight: 500;
 }
 
 .chart-canvas-wrap {
   position: relative;
   width: 100%;
+  padding-top: 10px;
 }
 
 .chart-empty-state {
@@ -1877,8 +1917,8 @@ th.sortable-hist.active-sort {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: rgba(173, 181, 189, 0.14);
-  color: var(--geist-ink);
+  background: #f1f5f9;
+  color: #0f172a;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1886,16 +1926,16 @@ th.sortable-hist.active-sort {
 }
 
 .chart-empty-title {
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   letter-spacing: -0.3px;
-  color: var(--text-primary);
+  color: #0f172a;
   margin: 0;
 }
 
 .chart-empty-sub {
-  font-size: 11.5px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: #64748b;
   max-width: 380px;
   line-height: 1.45;
   letter-spacing: -0.1px;

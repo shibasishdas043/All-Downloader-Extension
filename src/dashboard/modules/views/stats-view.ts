@@ -122,17 +122,35 @@ export function drawCategoryChart(allDownloads: any[]): void {
   if (canvasWrap) canvasWrap.hidden = false;
   if (totalBadge) totalBadge.textContent = `${sortedCats.length} ${sortedCats.length === 1 ? 'category' : 'categories'}`;
 
-  const shades = [1, 0.82, 0.65, 0.48, 0.35, 0.22];
+  // Modern distinct category palette (slate/indigo/teal/amber/rose/cyan)
+  const categoryPalette: Record<string, { fill: string; dot: string }> = {
+    image:       { fill: '#0284c7', dot: '#0284c7' }, // Sky
+    video:       { fill: '#6366f1', dot: '#6366f1' }, // Indigo
+    audio:       { fill: '#8b5cf6', dot: '#8b5cf6' }, // Purple
+    archive:     { fill: '#f59e0b', dot: '#f59e0b' }, // Amber
+    document:    { fill: '#10b981', dot: '#10b981' }, // Emerald
+    application: { fill: '#0f172a', dot: '#0f172a' }, // Slate Ink
+    other:       { fill: '#64748b', dot: '#64748b' }, // Muted Slate
+  };
+
+  const getCatColor = (cat: string, index: number) => {
+    const key = cat.toLowerCase();
+    if (categoryPalette[key]) return categoryPalette[key];
+    const fallbackList = ['#0f172a', '#0284c7', '#6366f1', '#10b981', '#f59e0b', '#ec4899', '#64748b'];
+    const color = fallbackList[index % fallbackList.length];
+    return { fill: color, dot: color };
+  };
 
   // 1. Proportional Distribution Bar
   if (distBar) {
     distBar.innerHTML = '';
     sortedCats.forEach(([cat, data], idx) => {
-      const pct = Math.max(2, ((data.count / totalCategorizedCount) * 100));
+      const pct = Math.max(3, ((data.count / totalCategorizedCount) * 100));
+      const { fill } = getCatColor(cat, idx);
       const seg = document.createElement('div');
       seg.className = 'cat-dist-segment';
       seg.style.width = `${pct}%`;
-      seg.style.background = `rgba(33, 37, 41, ${shades[idx % shades.length]})`;
+      seg.style.background = fill;
       seg.title = `${cat.toUpperCase()}: ${data.count} ${data.count === 1 ? 'file' : 'files'} (${pct.toFixed(1)}%) • ${formatBytes(data.bytes)}`;
       distBar.appendChild(seg);
     });
@@ -143,10 +161,11 @@ export function drawCategoryChart(allDownloads: any[]): void {
     pillsWrap.innerHTML = '';
     sortedCats.forEach(([cat, data], idx) => {
       const pct = ((data.count / totalCategorizedCount) * 100).toFixed(0);
+      const { dot } = getCatColor(cat, idx);
       const pill = document.createElement('div');
       pill.className = 'cat-metric-pill';
       pill.innerHTML = `
-        <span class="cat-pill-dot" style="opacity: ${shades[idx % shades.length]}"></span>
+        <span class="cat-pill-dot" style="background: ${dot}"></span>
         <span class="cat-pill-name">${escHtml(cat)}</span>
         <span class="cat-pill-stats">${data.count} ${data.count === 1 ? 'file' : 'files'} • ${formatBytes(data.bytes)} (${pct}%)</span>
       `;
@@ -160,7 +179,7 @@ export function drawCategoryChart(allDownloads: any[]): void {
   const parentWidth = canvasWrap ? canvasWrap.clientWidth : 600;
   const dpr = window.devicePixelRatio || 1;
   const W = Math.max(340, parentWidth);
-  const H = 220;
+  const H = 230;
 
   canvas.width = W * dpr;
   canvas.height = H * dpr;
@@ -169,13 +188,13 @@ export function drawCategoryChart(allDownloads: any[]): void {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
-  const chartBottom = H - 38;
-  const chartTop = 32;
+  const chartBottom = H - 42;
+  const chartTop = 34;
   const chartHeight = chartBottom - chartTop;
   const maxVal = Math.max(...sortedCats.map(c => c[1].count), 1);
 
   // Gridlines & Axis Markers
-  ctx.strokeStyle = 'rgba(173, 181, 189, 0.18)';
+  ctx.strokeStyle = 'rgba(226, 232, 240, 0.8)';
   ctx.lineWidth = 1;
 
   // 50% line
@@ -185,15 +204,15 @@ export function drawCategoryChart(allDownloads: any[]): void {
   ctx.stroke();
 
   // Baseline
-  ctx.strokeStyle = 'rgba(173, 181, 189, 0.3)';
+  ctx.strokeStyle = '#cbd5e1';
   ctx.beginPath();
   ctx.moveTo(35, chartBottom);
   ctx.lineTo(W - 20, chartBottom);
   ctx.stroke();
 
   // Y-axis value labels
-  ctx.fillStyle = '#adb5bd';
-  ctx.font = '600 9.5px Geist Mono, monospace';
+  ctx.fillStyle = '#64748b';
+  ctx.font = '600 10px Geist Mono, ui-monospace, monospace';
   ctx.textAlign = 'right';
   ctx.fillText(maxVal.toString(), 28, chartTop + 4);
   ctx.fillText(Math.round(maxVal / 2).toString(), 28, chartTop + chartHeight / 2 + 3);
@@ -202,35 +221,36 @@ export function drawCategoryChart(allDownloads: any[]): void {
   const count = sortedCats.length;
   const availableWidth = W - 70;
   const slotWidth = availableWidth / count;
-  const barWidth = Math.min(54, Math.max(26, slotWidth * 0.52));
+  const barWidth = Math.min(56, Math.max(28, slotWidth * 0.48));
 
   sortedCats.forEach(([cat, data], i) => {
     const centerX = 45 + i * slotWidth + slotWidth / 2;
     const barX = centerX - barWidth / 2;
-    const barH = Math.max(5, Math.round((data.count / maxVal) * chartHeight));
+    const barH = Math.max(6, Math.round((data.count / maxVal) * chartHeight));
     const barY = chartBottom - barH;
+    const { fill } = getCatColor(cat, i);
 
-    // Solid Ink Bar with Rounded Top
-    ctx.fillStyle = `rgba(33, 37, 41, ${shades[i % shades.length]})`;
+    // Rounded bar
+    ctx.fillStyle = fill;
     ctx.beginPath();
-    ctx.roundRect(barX, barY, barWidth, barH, [4, 4, 0, 0]);
+    ctx.roundRect(barX, barY, barWidth, barH, [6, 6, 0, 0]);
     ctx.fill();
 
-    // Value on top of bar
-    ctx.fillStyle = '#212529';
-    ctx.font = '700 11px Geist Mono, monospace';
+    // Value count on top of bar
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '700 12px Geist Mono, ui-monospace, monospace';
     ctx.textAlign = 'center';
     ctx.fillText(data.count.toString(), centerX, barY - 14);
 
     // Sub-metric bytes below count
-    ctx.fillStyle = '#adb5bd';
-    ctx.font = '500 9px Geist Mono, monospace';
-    ctx.fillText(formatBytes(data.bytes), centerX, barY - 4);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '600 9.5px Geist Mono, ui-monospace, monospace';
+    ctx.fillText(formatBytes(data.bytes), centerX, barY - 3);
 
     // Category label below baseline
-    ctx.fillStyle = '#212529';
-    ctx.font = '700 10px Geist Mono, monospace';
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '700 10.5px Geist Mono, ui-monospace, monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(cat.toUpperCase(), centerX, chartBottom + 18);
+    ctx.fillText(cat.toUpperCase(), centerX, chartBottom + 20);
   });
 }
