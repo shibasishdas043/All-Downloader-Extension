@@ -3,7 +3,7 @@
 // ============================================================
 import { DOWNLOAD_STATE, UI } from '../../shared/constants.js';
 import {
-  formatBytes, formatSpeed, formatETA,
+  formatBytes, formatSpeed, formatETA, formatHumanETA,
   truncateName, getExtension
 } from '../../shared/utils.js';
 import type { DownloadState } from '../../shared/types.js';
@@ -111,7 +111,7 @@ export function populateItem(el: HTMLElement, dl: any): void {
   if (st === DOWNLOAD_STATE.DOWNLOADING) {
     speedEl.textContent = formatSpeed(dl.speed);
     pctEl.textContent   = `${pct}%`;
-    etaEl.textContent   = dl.eta ? `· ${formatETA(dl.eta)}` : '';
+    etaEl.textContent   = dl.eta ? `· ${formatHumanETA(dl.eta)}` : (dl.speed ? '· calculating…' : '');
   } else {
     speedEl.textContent = stateBadgeLabels[st] || '';
     pctEl.textContent   = `${pct}%`;

@@ -3,7 +3,7 @@
 // ============================================================
 import { DOWNLOAD_STATE, MSG } from '../../../shared/constants.js';
 import {
-  formatBytes, formatSpeed, formatETA,
+  formatBytes, formatSpeed, formatETA, formatHumanETA,
   truncateName, getExtension
 } from '../../../shared/utils.js';
 import { state } from '../state.js';
@@ -12,6 +12,38 @@ import { escHtml, renderPaginationControls } from '../dom-helpers.js';
 import { getFilteredDownloads } from '../filters.js';
 import { updateSelectAllCheckbox, updateBulkBar } from '../bulk-actions.js';
 import { updateSidebarStats, updateBadges } from '../sidebar.js';
+
+export function formatETADisplay(dl: any): string {
+  if (dl.state !== DOWNLOAD_STATE.DOWNLOADING) {
+    return '—';
+  }
+  if (dl.eta && dl.eta > 0) {
+    return formatHumanETA(dl.eta);
+  }
+  if (dl.speed && dl.speed > 0) {
+    return '<span class="eta-calc">Calculating…</span>';
+  }
+  return '—';
+}
+
+export function formatSizeDisplay(dl: any): string {
+  const total = dl.total || dl.filesize || 0;
+  const received = dl.received || dl.receivedBytes || 0;
+
+  if (dl.state === DOWNLOAD_STATE.COMPLETED && total > 0) {
+    return `<div class="size-cell-wrap"><span class="size-downloaded">${formatBytes(total)}</span></div>`;
+  }
+
+  if (total > 0) {
+    return `<div class="size-cell-wrap"><span class="size-downloaded">${formatBytes(received)}</span><span class="size-sep">/</span><span class="size-total">${formatBytes(total)}</span></div>`;
+  }
+
+  if (received > 0) {
+    return `<div class="size-cell-wrap"><span class="size-downloaded">~${formatBytes(received)}</span></div>`;
+  }
+
+  return '<div class="size-cell-wrap"><span class="size-total">—</span></div>';
+}
 
 export function queueProgressUpdate(id: string): void {
   state.pendingProgressIds.add(id);
@@ -38,9 +70,9 @@ export function flushProgressUpdates(): void {
     // Mutate in-place using cached element references — zero DOM querying & zero layout thrashing
     if (refs.fill) refs.fill.style.width = `${dl.percent || 0}%`;
     if (refs.label) refs.label.textContent = `${dl.percent || 0}%`;
-    if (refs.sizeCell && dl.total > 0) refs.sizeCell.textContent = formatBytes(dl.total);
+    if (refs.sizeCell) refs.sizeCell.innerHTML = formatSizeDisplay(dl);
     if (refs.speed) refs.speed.textContent = dl.state === DOWNLOAD_STATE.DOWNLOADING ? formatSpeed(dl.speed) : '—';
-    if (refs.eta) refs.eta.textContent = (dl.state === DOWNLOAD_STATE.DOWNLOADING && dl.eta) ? formatETA(dl.eta) : '—';
+    if (refs.eta) refs.eta.innerHTML = formatETADisplay(dl);
 
     if (refs.statusCol && refs.statusCol.dataset.state !== dl.state) {
       refs.statusCol.dataset.state = dl.state;
@@ -123,13 +155,13 @@ export function buildRow(dl: any, index = 0): HTMLTableRowElement {
     <td class="col-file">
       <div class="file-cell">
         <div class="file-ext-badge">${badgeMarkup}</div>
-        <div>
+        <div class="file-meta-wrap">
           <span class="file-name" title="${escHtml(dl.filename)}">${escHtml(truncateName(dl.filename, 36))}</span>
           <span class="file-url" title="${escHtml(dl.url)}">${escHtml(dl.url)}</span>
         </div>
       </div>
     </td>
-    <td class="col-size">${dl.total > 0 ? formatBytes(dl.total) : dl.received > 0 ? `~${formatBytes(dl.received)}` : '—'}</td>
+    <td class="col-size">${formatSizeDisplay(dl)}</td>
     <td class="col-progress">
       <div class="tbl-progress-wrap">
         <div class="tbl-progress-track">
@@ -141,7 +173,7 @@ export function buildRow(dl: any, index = 0): HTMLTableRowElement {
     <td class="col-speed">
       <span class="speed-cell">${dl.state === DOWNLOAD_STATE.DOWNLOADING ? formatSpeed(dl.speed) : '—'}</span>
     </td>
-    <td class="col-eta">${dl.state === DOWNLOAD_STATE.DOWNLOADING && dl.eta ? formatETA(dl.eta) : '—'}</td>
+    <td class="col-eta">${formatETADisplay(dl)}</td>
     <td class="col-status" data-state="${dl.state}">${buildStateBadge(dl.state)}</td>
     <td class="col-actions">
       <div class="row-actions">${buildRowActions(dl)}</div>
@@ -174,6 +206,10 @@ export function updateTableRowState(id: string): void {
       statusCol.dataset.state = dl.state;
       statusCol.innerHTML = buildStateBadge(dl.state);
     }
+    const sizeCell = tr.querySelector('.col-size') as HTMLElement | null;
+    if (sizeCell) {
+      sizeCell.innerHTML = formatSizeDisplay(dl);
+    }
     const actionsWrap = tr.querySelector('.row-actions');
     if (actionsWrap) {
       actionsWrap.innerHTML = buildRowActions(dl);
@@ -181,7 +217,7 @@ export function updateTableRowState(id: string): void {
     const speed = tr.querySelector('.speed-cell');
     if (speed) speed.textContent = dl.state === DOWNLOAD_STATE.DOWNLOADING ? formatSpeed(dl.speed) : '—';
     const eta = tr.querySelector('.col-eta');
-    if (eta) eta.textContent = (dl.state === DOWNLOAD_STATE.DOWNLOADING && dl.eta) ? formatETA(dl.eta) : '—';
+    if (eta) eta.innerHTML = formatETADisplay(dl);
 
     // If activeFilter is active and state no longer satisfies it, refresh table
     if (state.activeFilter !== 'all' && state.currentView === 'downloads') {

@@ -91,7 +91,7 @@ export class DownloadCoordinator {
       receivedBytes: 0,
       progress: 0,
       speed: 0,
-      eta: 0,
+      eta: null,
       status: DOWNLOAD_STATE.QUEUED as DownloadState,
       createdAt: Date.now(),
       errorMessage: null,
@@ -146,7 +146,7 @@ export class DownloadCoordinator {
           percent,
           progress: percent,
           speed: speedSnap.bytesPerSec,
-          eta: speedSnap.etaSec || 0,
+          eta: speedSnap.etaSec,
         };
         await this.updateState(id, DOWNLOAD_STATE.DOWNLOADING as DownloadState, update);
         broadcastMessage({ type: MSG.DOWNLOAD_PROGRESS, id, ...update });

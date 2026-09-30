@@ -2,7 +2,7 @@
 //  Unit Tests — utils.ts
 // ============================================================
 import {
-  formatBytes, formatSpeed, formatETA,
+  formatBytes, formatSpeed, formatETA, formatHumanETA,
   getFilenameFromUrl, getExtension, truncateName,
   detectCategory, detectCategoryFromMime, generateId, calcPercent, isValidUrl,
   relativeTime
@@ -26,6 +26,40 @@ describe('formatETA', () => {
   test('90 sec',     () => expect(formatETA(90)).toBe('01:30'));
   test('3661 sec',   () => expect(formatETA(3661)).toBe('01:01:01'));
   test('null/inf',   () => expect(formatETA(null)).toBe('--:--'));
+});
+
+describe('formatHumanETA', () => {
+  test('null / inf / zero', () => {
+    expect(formatHumanETA(null)).toBe('—');
+    expect(formatHumanETA(undefined)).toBe('—');
+    expect(formatHumanETA(0)).toBe('—');
+    expect(formatHumanETA(-5)).toBe('—');
+    expect(formatHumanETA(Infinity)).toBe('—');
+  });
+
+  test('seconds (< 60s)', () => {
+    expect(formatHumanETA(5)).toBe('5s');
+    expect(formatHumanETA(45)).toBe('45s');
+    expect(formatHumanETA(59)).toBe('59s');
+  });
+
+  test('minutes and seconds (< 1h)', () => {
+    expect(formatHumanETA(60)).toBe('1m');
+    expect(formatHumanETA(90)).toBe('1m 30s');
+    expect(formatHumanETA(245)).toBe('4m 5s');
+  });
+
+  test('hours and minutes (< 24h)', () => {
+    expect(formatHumanETA(3600)).toBe('1h');
+    expect(formatHumanETA(3661)).toBe('1h 1m');
+    expect(formatHumanETA(7320)).toBe('2h 2m');
+  });
+
+  test('days and hours (>= 24h)', () => {
+    expect(formatHumanETA(86400)).toBe('1d');
+    expect(formatHumanETA(90000)).toBe('1d 1h');
+    expect(formatHumanETA(180000)).toBe('2d 2h');
+  });
 });
 
 describe('getFilenameFromUrl', () => {

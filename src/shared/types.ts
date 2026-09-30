@@ -46,7 +46,7 @@ export interface DownloadItem {
   receivedBytes: number;
   progress: number;
   speed: number;
-  eta: number;
+  eta: number | null;
   status: DownloadState;
   category: FileCategory;
   mimeType?: string | null;
