@@ -1,7 +1,7 @@
 // ============================================================
 //  Unit Tests — Streaming Assembly & Segment Partitioning
 // ============================================================
-import { describe, test, expect } from 'vitest';
+import { describe, test, expect, vi } from 'vitest';
 import { SpeedTracker } from '../../src/background/speed-tracker.ts';
 
 describe('Zero-Copy Composite Blob Assembly', () => {
@@ -24,7 +24,7 @@ describe('Zero-Copy Composite Blob Assembly', () => {
   test('assembles large chunk slices without memory mutation', () => {
     // Simulate 4 segments of 1MB each
     const segSize = 1024 * 1024;
-    const segments: Uint8Array[] = [];
+    const segments: Uint8Array<ArrayBuffer>[] = [];
     for (let i = 0; i < 4; i++) {
       segments.push(new Uint8Array(segSize));
     }
