@@ -80,10 +80,13 @@ export async function pauseAll(): Promise<void> {
 
 export async function startManualDownload(): Promise<void> {
   const url = $urlInput.value.trim();
+  const wrapper = $urlInput.closest('.input-wrapper') as HTMLElement | null;
   if (!isValidUrl(url)) {
-    $urlInput.style.borderColor = 'var(--orange)';
+    if (wrapper) {
+      wrapper.style.background = '#fee2e2';
+      setTimeout(() => { wrapper.style.background = ''; }, 1200);
+    }
     $urlInput.focus();
-    setTimeout(() => { $urlInput.style.borderColor = ''; }, 1500);
     return;
   }
   const filename = $filenameInput.value.trim() || undefined;
@@ -91,19 +94,20 @@ export async function startManualDownload(): Promise<void> {
   await sendMsg({ type: MSG.START_DOWNLOAD, payload: { url, filename } });
 }
 
-export async function openDashboard(): Promise<void> {
-  const url = chrome.runtime.getURL('src/dashboard/dashboard.html');
+export async function openDashboard(view: string = 'settings'): Promise<void> {
+  const baseUrl = chrome.runtime.getURL('src/dashboard/dashboard.html');
+  const targetUrl = view ? `${baseUrl}?view=${encodeURIComponent(view)}` : baseUrl;
 
   if (chrome.tabs && chrome.tabs.create) {
     try {
-      chrome.tabs.query({ url }, (existingTabs) => {
+      chrome.tabs.query({ url: `${baseUrl}*` }, (existingTabs) => {
         if (chrome.runtime.lastError) {
-          chrome.tabs.create({ url }, () => window.close());
+          chrome.tabs.create({ url: targetUrl }, () => window.close());
           return;
         }
 
         if (existingTabs && existingTabs.length > 0 && existingTabs[0]?.id) {
-          chrome.tabs.update(existingTabs[0].id, { active: true }, () => {
+          chrome.tabs.update(existingTabs[0].id, { url: targetUrl, active: true }, () => {
             if (existingTabs[0]?.windowId) {
               chrome.windows?.update(existingTabs[0].windowId, { focused: true }, () => window.close());
             } else {
@@ -111,7 +115,7 @@ export async function openDashboard(): Promise<void> {
             }
           });
         } else {
-          chrome.tabs.create({ url }, () => window.close());
+          chrome.tabs.create({ url: targetUrl }, () => window.close());
         }
       });
       return;
@@ -121,6 +125,6 @@ export async function openDashboard(): Promise<void> {
   }
 
   // Fallback to background service worker message
-  await sendMsg({ type: MSG.OPEN_DASHBOARD });
+  await sendMsg({ type: MSG.OPEN_DASHBOARD, view });
   setTimeout(() => window.close(), 100);
 }

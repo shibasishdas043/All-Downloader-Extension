@@ -128,7 +128,7 @@ export async function handleMessage(
     }
 
     case MSG.OPEN_DASHBOARD: {
-      openDashboard();
+      openDashboard(msg.view);
       return { ok: true };
     }
 

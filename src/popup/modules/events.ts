@@ -31,11 +31,11 @@ export function bindEvents(): void {
 
   document.getElementById('btn-dashboard')?.addEventListener('click', (e) => {
     e.preventDefault();
-    openDashboard();
+    openDashboard('settings');
   });
   document.getElementById('btn-view-all')?.addEventListener('click', (e) => {
     e.preventDefault();
-    openDashboard();
+    openDashboard('downloads');
   });
   document.getElementById('btn-add')?.addEventListener('click', showModal);
   document.getElementById('modal-close')?.addEventListener('click', hideModal);

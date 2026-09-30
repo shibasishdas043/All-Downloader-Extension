@@ -1,5 +1,5 @@
 // ============================================================
-//  All-Downloader — Popup Entry Point
+//  All-Downloader — Popup Entry Point (Dynamic Status View)
 // ============================================================
 import { MSG } from '../shared/constants.js';
 import {

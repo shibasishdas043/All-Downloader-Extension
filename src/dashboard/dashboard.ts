@@ -30,6 +30,11 @@ export function renderView(view: string): void {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.getElementById(`view-${view}`)?.classList.add('active');
 
+  // Keep sidebar navigation in sync
+  document.querySelectorAll('.nav-item').forEach(b => {
+    b.classList.toggle('active', (b as HTMLElement).dataset.view === view);
+  });
+
   // Memory optimization: deallocate canvas backing store when switching away from stats
   if (view !== 'stats') {
     const canvas = document.getElementById('chart-category') as HTMLCanvasElement | null;
@@ -148,7 +153,18 @@ async function init(): Promise<void> {
   updateSidebarStats();
   updateBadges();
 
-  renderView('downloads');
+  function getInitialView(): string {
+    const params = new URLSearchParams(window.location.search);
+    const viewParam = params.get('view') || window.location.hash.replace(/^#/, '');
+    const validViews = ['downloads', 'queue', 'history', 'stats', 'settings'];
+    return validViews.includes(viewParam) ? viewParam : 'downloads';
+  }
+
+  renderView(getInitialView());
+
+  window.addEventListener('popstate', () => {
+    renderView(getInitialView());
+  });
 }
 
 let resizeTimer: any = null;

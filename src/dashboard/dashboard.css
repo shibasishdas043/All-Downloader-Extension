@@ -68,13 +68,15 @@ html {
 
 body {
   display: flex;
-  min-height: 100vh;
-  background: var(--bg-root);
+  height: 100vh;
+  overflow: hidden;
+  background: #d1d9e3;
   color: var(--text-primary);
   font-family: var(--font);
   font-size: 13.5px;
   line-height: 1.5;
-  overflow-x: hidden;
+  padding: 12px;
+  gap: 8px;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -98,27 +100,16 @@ body {
 ════════════════════════════════════════════════════════════════ */
 .sidebar {
   width: var(--sidebar-w);
-  min-height: 100vh;
   background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  height: 100%;
   overflow: hidden;
+  border-radius: 14px;
 }
 
-.sidebar::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 1px;
-  background: var(--geist-gray);
-  opacity: 0.35;
-}
+
 
 /* Brand Header */
 .sidebar-brand {
@@ -349,9 +340,10 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
   overflow: hidden;
-  background: var(--bg-root);
+  background: #f4f6f8;
+  border-radius: 14px;
 }
 
 /* ── Topbar (Clean Flat Bar) ─────────────────────────────────── */
@@ -362,9 +354,11 @@ body {
   height: var(--topbar-h);
   padding: 0 32px;
   background: var(--bg-topbar);
+  border-radius: 14px 14px 0 0;
   position: sticky;
   top: 0;
   z-index: 10;
+  flex-shrink: 0;
 }
 
 .topbar::after {
@@ -545,15 +539,17 @@ body {
 /* ── Views Container ─────────────────────────────────────────── */
 .view {
   display: none;
-  padding: 28px 32px;
+  padding: 28px 32px 0;
   flex: 1;
   opacity: 0;
   transform: translateY(10px) scale(0.995);
   will-change: opacity, transform;
+  overflow: hidden;
 }
 
 .view.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
   animation: framerViewEnter 0.32s var(--ease-out-expo) forwards;
 }
 
@@ -690,10 +686,27 @@ body {
    DOWNLOADS TABLE (High-Contrast Precision Grid)
 ════════════════════════════════════════════════════════════════ */
 .table-wrap {
+  flex: 1;
   width: 100%;
   background: #ffffff;
-  border-radius: var(--radius-md);
-  overflow: hidden;
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Custom minimal scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.table-wrap::-webkit-scrollbar {
+  width: 5px;
+}
+.table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.table-wrap::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
 }
 
 .dl-table {
@@ -704,6 +717,9 @@ body {
 
 .dl-table thead tr {
   background: #e2e8f0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 /* Uppercase Mono Eyebrow Headers — High Contrast Pure Flat */
@@ -921,6 +937,22 @@ th.col-actions {
 /* Progress in table (Stark High-Contrast Flat Fill) */
 .tbl-progress-wrap {
   width: 100%;
+}
+
+/* Hide progress bar and percentage for completed and cancelled downloads */
+tr[data-state="completed"] .tbl-progress-wrap,
+tr[data-state="cancelled"] .tbl-progress-wrap {
+  display: none !important;
+}
+
+tr[data-state="completed"] .col-progress::after,
+tr[data-state="cancelled"] .col-progress::after {
+  content: '—';
+  display: inline-block;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 13px;
 }
 
 .tbl-progress-track {

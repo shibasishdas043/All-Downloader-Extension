@@ -34,7 +34,7 @@
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
       </button>
-      <button class="icon-btn" id="btn-dashboard" title="Open Dashboard">
+      <button class="icon-btn" id="btn-dashboard" title="Settings">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
           <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
@@ -83,7 +83,7 @@
       Pause All
     </button>
     <button class="footer-btn" id="btn-view-all">
-      View All
+      Dashboard
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
         <path d="M9 18l6-6-6-6"/>
       </svg>
@@ -93,22 +93,64 @@
   <!-- ═══════════════════════════════════════════════
        ADD URL MODAL
   ══════════════════════════════════════════════════ -->
+  <!-- ═══════════════════════════════════════════════
+       ADD URL MODAL
+  ══════════════════════════════════════════════════ -->
   <div class="modal-overlay" id="modal-add" hidden>
     <div class="modal">
       <div class="modal-header">
-        <span>Add Download URL</span>
-        <button class="icon-btn" id="modal-close">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        <div class="modal-title-group">
+          <div class="modal-icon-badge">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </div>
+          <span class="modal-title-text">Add Download URL</span>
+        </div>
+        <button class="icon-btn modal-close-btn" id="modal-close" title="Close" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
           </svg>
         </button>
       </div>
+
       <div class="modal-body">
-        <input type="url" id="url-input" placeholder="https://example.com/file.zip" autocomplete="off" spellcheck="false"/>
-        <input type="text" id="filename-input" placeholder="Filename (optional)" autocomplete="off"/>
+        <div class="input-group">
+          <label class="input-label" for="url-input">Source Link</label>
+          <div class="input-wrapper">
+            <svg class="input-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            <input type="url" id="url-input" placeholder="https://example.com/file.zip" autocomplete="off" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="input-group">
+          <div class="input-label-row">
+            <label class="input-label" for="filename-input">Custom Filename</label>
+            <span class="input-badge-optional">Optional</span>
+          </div>
+          <div class="input-wrapper">
+            <svg class="input-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <input type="text" id="filename-input" placeholder="e.g. document.pdf" autocomplete="off" />
+          </div>
+        </div>
       </div>
+
       <div class="modal-footer">
-        <button class="btn-primary" id="btn-start-download">Start Download</button>
+        <button class="btn-primary" id="btn-start-download">
+          <span>Start Download</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2v13M7 11l5 5 5-5"/>
+            <path d="M3 18h18"/>
+          </svg>
+        </button>
       </div>
     </div>
   </div>

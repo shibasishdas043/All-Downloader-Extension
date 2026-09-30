@@ -140,6 +140,7 @@ export function buildRowActions(dl: any): string {
 export function buildRow(dl: any, index = 0): HTMLTableRowElement {
   const tr = document.createElement('tr');
   tr.dataset.id = dl.id;
+  tr.dataset.state = dl.state;
   tr.style.setProperty('--stagger', String(Math.min(index, 20)));
 
   const ext = getExtension(dl.filename);
@@ -201,6 +202,7 @@ export function updateTableRowState(id: string): void {
   if (!dl) return;
 
   if (tr) {
+    (tr as HTMLElement).dataset.state = dl.state;
     const statusCol = tr.querySelector('.col-status') as HTMLElement | null;
     if (statusCol) {
       statusCol.dataset.state = dl.state;

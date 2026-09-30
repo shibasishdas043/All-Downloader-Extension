@@ -86,8 +86,30 @@ export function populateItem(el: HTMLElement, dl: any): void {
 
   const total = dl.total || dl.filesize || 0;
   const received = dl.received || dl.receivedBytes || 0;
-  const sizeStr = total > 0 ? `${formatBytes(received)} / ${formatBytes(total)}` : formatBytes(received);
-  (el.querySelector('.dl-meta') as HTMLElement).textContent = sizeStr;
+  const st = dl.status || dl.state;
+
+  let metaHtml = '';
+  if (st === DOWNLOAD_STATE.COMPLETED) {
+    const size = total > 0 ? formatBytes(total) : (received > 0 ? formatBytes(received) : '—');
+    metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text completed">Completed</span>`;
+  } else if (st === DOWNLOAD_STATE.CANCELLED) {
+    const size = total > 0 ? formatBytes(total) : (received > 0 ? formatBytes(received) : '—');
+    metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text cancelled">Cancelled</span>`;
+  } else if (st === DOWNLOAD_STATE.ERROR) {
+    const size = received > 0 ? formatBytes(received) : (total > 0 ? formatBytes(total) : '—');
+    const errText = (dl.error || dl.errorMessage || '').toLowerCase();
+    const failLabel = errText.includes('network') || errText.includes('connect') || errText.includes('fetch')
+      ? 'Failed (Network error)'
+      : 'Failed';
+    metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text error">${failLabel}</span>`;
+  } else {
+    // Active states (downloading, paused, queued, connecting, merging, verifying):
+    // only show size — status is already shown in the speed row below the progress bar
+    const sizeStr = total > 0 ? `${formatBytes(received)} / ${formatBytes(total)}` : formatBytes(received);
+    metaHtml = `<span>${sizeStr}</span>`;
+  }
+
+  (el.querySelector('.dl-meta') as HTMLElement).innerHTML = metaHtml;
 
   const pct = dl.percent ?? dl.progress ?? 0;
   (el.querySelector('.dl-progress-fill') as HTMLElement).style.width = `${pct}%`;
@@ -107,7 +129,6 @@ export function populateItem(el: HTMLElement, dl: any): void {
   const pctEl   = el.querySelector('.dl-percent') as HTMLElement;
   const etaEl   = el.querySelector('.dl-eta') as HTMLElement;
 
-  const st = dl.status || dl.state;
   if (st === DOWNLOAD_STATE.DOWNLOADING) {
     speedEl.textContent = formatSpeed(dl.speed);
     pctEl.textContent   = `${pct}%`;

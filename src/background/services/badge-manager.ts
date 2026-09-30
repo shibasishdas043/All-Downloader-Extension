@@ -37,16 +37,17 @@ export function broadcastMessage(payload: Record<string, any>): void {
   }
 }
 
-export function openDashboard(): void {
-  const url = chrome.runtime.getURL('src/dashboard/dashboard.html');
-  chrome.tabs.query({ url }, (tabs) => {
+export function openDashboard(view?: string): void {
+  const baseUrl = chrome.runtime.getURL('src/dashboard/dashboard.html');
+  const targetUrl = view ? `${baseUrl}?view=${encodeURIComponent(view)}` : baseUrl;
+  chrome.tabs.query({ url: `${baseUrl}*` }, (tabs) => {
     if (tabs && tabs.length > 0 && tabs[0]?.id) {
-      chrome.tabs.update(tabs[0].id, { active: true });
+      chrome.tabs.update(tabs[0].id, { url: targetUrl, active: true });
       if (tabs[0].windowId) {
         chrome.windows?.update(tabs[0].windowId, { focused: true });
       }
     } else {
-      chrome.tabs.create({ url });
+      chrome.tabs.create({ url: targetUrl });
     }
   });
 }

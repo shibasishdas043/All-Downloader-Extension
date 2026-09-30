@@ -13,6 +13,7 @@ import {
   openDashboard,
   updateBadge,
 } from './services/index.js';
+import { restoreDefaultIcon } from './icon-animator.js';
 
 let settings: ExtensionSettings = { ...DEFAULT_SETTINGS } as ExtensionSettings;
 const coordinator = new DownloadCoordinator(settings);
@@ -23,6 +24,7 @@ const coordinator = new DownloadCoordinator(settings);
 
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[ADL] Extension installed / updated.');
+  restoreDefaultIcon();
   settings = await loadSettings();
   coordinator.updateSettings(settings);
   await coordinator.restoreInProgressDownloads();
@@ -30,6 +32,7 @@ chrome.runtime.onInstalled.addListener(async () => {
 });
 
 self.addEventListener('activate', async () => {
+  restoreDefaultIcon();
   settings = await loadSettings();
   coordinator.updateSettings(settings);
   await coordinator.restoreInProgressDownloads();

@@ -11,7 +11,6 @@ import {
   loadDownloads, saveDownloads, recordCompletion, clearChunks
 } from '../storage.js';
 import { startDownload, pauseDownload, cancelDownload, RateLimiter } from '../download-engine.js';
-import { playDownloadStartAnimation } from '../icon-animator.js';
 import { QueueManager } from '../queue-manager.js';
 import type { DownloadItem, ExtensionSettings, DownloadState } from '../../shared/types.js';
 import { sanitizeFilename, buildSavePath, escapeRegex } from './path-sanitizer.js';
@@ -21,6 +20,7 @@ import {
   cleanupPendingChromeDownload, revokeBlobUrl,
   type PendingChromeDownload
 } from './offscreen-manager.js';
+import { showDownloadStartedToast } from './toast-manager.js';
 
 export interface AddDownloadOptions {
   url: string;
@@ -119,7 +119,7 @@ export class DownloadCoordinator {
 
     broadcastMessage({ type: MSG.DOWNLOAD_ADDED, download });
     updateBadge(this.downloadCache.values());
-    playDownloadStartAnimation(() => updateBadge(this.downloadCache.values()));
+    showDownloadStartedToast(name);
 
     if (this.settings.autoStart) {
       this.queue.enqueue(id, scheduledAt);
