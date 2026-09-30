@@ -5,25 +5,29 @@
    Rules: NO borders, NO outlines, NO glow effects, Flat colors only
 ============================================================ */
 
-/* ── Tokens: Vercel Geist 3-Color Flat Architecture ───────────── */
+/* ── Tokens: High-Contrast Crisp Clean Architecture ───────────── */
 :root {
-  --geist-ink:    #212529;
-  --geist-gray:   #adb5bd;
-  --geist-canvas: #f8f9fa;
+  --geist-ink:    #0f172a;
+  --geist-gray:   #475569;
+  --geist-canvas: #f8fafc;
 
-  --bg-root:       #f8f9fa;
-  --bg-sidebar:    #f8f9fa;
-  --bg-topbar:     #f8f9fa;
-  --bg-card:       rgba(173, 181, 189, 0.12);
-  --bg-card-hover: rgba(173, 181, 189, 0.22);
-  --bg-track:      rgba(173, 181, 189, 0.25);
-  --bg-pill:       rgba(173, 181, 189, 0.18);
-  --bg-pill-hover: rgba(33, 37, 41, 0.08);
+  --bg-root:       #f8fafc;
+  --bg-sidebar:    #ffffff;
+  --bg-topbar:     #ffffff;
+  --bg-card:       #ffffff;
+  --bg-card-hover: #f1f5f9;
+  --bg-track:      #e2e8f0;
+  --bg-pill:       #f1f5f9;
+  --bg-pill-hover: #e2e8f0;
 
-  --text-primary:   #212529;
-  --text-secondary: rgba(33, 37, 41, 0.72);
-  --text-muted:     #adb5bd;
-  --text-on-dark:   #f8f9fa;
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --border-focus:  #0f172a;
+
+  --text-primary:   #0f172a;
+  --text-secondary: #334155;
+  --text-muted:     #475569;
+  --text-on-dark:   #ffffff;
 
   --sidebar-w: 240px;
   --topbar-h: 68px;
@@ -50,16 +54,13 @@
   --mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 
-/* ── Reset: Absolutely No Borders, No Outlines, No Glow ──────── */
+/* ── Reset ───────────────────────────────────────────────────── */
 *,
 *::before,
 *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
 }
 
 html {
@@ -383,8 +384,9 @@ body {
 
 .page-subtitle {
   display: block;
-  font-size: 11.5px;
-  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
   margin-top: 2px;
   letter-spacing: -0.1px;
 }
@@ -405,31 +407,36 @@ body {
   left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
-  color: var(--text-muted);
+  width: 15px;
+  height: 15px;
+  color: var(--text-secondary);
   pointer-events: none;
 }
 
 .search-input {
   width: 240px;
-  padding: 8px 14px 8px 34px;
-  background: var(--bg-card);
+  padding: 8px 14px 8px 36px;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-family: var(--font);
-  font-size: 12.5px;
+  font-size: 13px;
+  font-weight: 500;
   transition: all var(--transition);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .search-input:focus {
-  background: var(--bg-card-hover);
+  background: #ffffff;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.08);
   width: 270px;
 }
 
 .search-input::placeholder {
   color: var(--text-muted);
-  opacity: 0.8;
+  opacity: 1;
 }
 
 /* Primary CTA — Vercel Pill-Shaped Black Marketing Button */
@@ -549,10 +556,10 @@ body {
   animation: framerViewEnter 0.32s var(--ease-out-expo) forwards;
 }
 
-/* ── Filter Tabs (Vercel Geist Pill Architecture) ─────────────── */
+/* ── Filter Tabs ─────────────────────────────────────────────── */
 .filter-tabs {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 12px;
   flex-wrap: wrap;
   align-items: center;
@@ -560,20 +567,23 @@ body {
 
 .filter-tab {
   padding: 6px 14px;
-  background: var(--bg-card);
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   letter-spacing: -0.2px;
   font-family: var(--font);
   cursor: pointer;
   transition: all var(--transition-fast);
   user-select: none;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .filter-tab:hover {
   background: var(--bg-card-hover);
+  border-color: #94a3b8;
   color: var(--text-primary);
 }
 
@@ -584,13 +594,15 @@ body {
 .filter-tab.active {
   background: var(--geist-ink);
   color: var(--text-on-dark);
+  border-color: var(--geist-ink);
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.15);
   font-weight: 600;
 }
 
-/* ── Category Chips (Vercel Geist Micro-Pills) ───────────────── */
+/* ── Category Chips ──────────────────────────────────────────── */
 .category-chips {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   margin-bottom: 20px;
   flex-wrap: wrap;
   align-items: center;
@@ -598,11 +610,12 @@ body {
 
 .chip {
   padding: 5px 12px;
-  background: var(--bg-card);
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-pill);
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 600;
   font-family: var(--font);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -610,10 +623,12 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
 .chip:hover {
   background: var(--bg-card-hover);
+  border-color: #94a3b8;
   color: var(--text-primary);
 }
 
@@ -624,6 +639,8 @@ body {
 .chip.active {
   background: var(--geist-ink);
   color: var(--text-on-dark);
+  border-color: var(--geist-ink);
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.15);
   font-weight: 600;
 }
 
@@ -679,12 +696,14 @@ body {
 }
 
 /* ════════════════════════════════════════════════════════════════
-   DOWNLOADS TABLE (Vercel Geist Precision Fixed Grid)
+   DOWNLOADS TABLE (High-Contrast Precision Grid)
 ════════════════════════════════════════════════════════════════ */
 .table-wrap {
   width: 100%;
-  background: var(--bg-card);
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
   overflow: hidden;
 }
 
@@ -695,18 +714,19 @@ body {
 }
 
 .dl-table thead tr {
-  background: rgba(173, 181, 189, 0.18);
+  background: #f1f5f9;
+  border-bottom: 1px solid var(--border-strong);
 }
 
-/* Uppercase Mono Eyebrow Headers from DESIGN.md */
+/* Uppercase Mono Eyebrow Headers — High Contrast */
 .dl-table th {
-  padding: 12px 14px;
+  padding: 13px 14px;
   font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: var(--text-muted);
+  letter-spacing: 0.9px;
+  color: #1e293b; /* Deep slate, stark and crystal clear */
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
@@ -719,18 +739,18 @@ body {
 }
 
 .dl-table th.sortable:hover {
-  color: var(--text-primary);
+  color: #0284c7;
 }
 
 .sort-arrow {
-  font-size: 10px;
-  color: var(--geist-gray);
-  opacity: 0.8;
-  margin-left: 2px;
+  font-size: 11px;
+  color: #64748b;
+  opacity: 1;
+  margin-left: 3px;
 }
 
 .dl-table td {
-  padding: 12px 14px;
+  padding: 13px 14px;
   vertical-align: middle;
   font-size: 13px;
   overflow: hidden;
@@ -739,12 +759,13 @@ body {
 }
 
 .dl-table tbody tr {
-  background: transparent;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border-subtle);
   transition: background var(--transition-fast);
 }
 
 .dl-table tbody tr:hover td {
-  background: var(--bg-card-hover);
+  background: #f8fafc;
 }
 
 /* Column widths — strictly locked via table-layout: fixed */
@@ -829,16 +850,17 @@ th.col-actions {
 }
 
 .file-ext-badge {
-  width: 34px;
-  height: 34px;
-  min-width: 34px;
-  background: var(--bg-pill);
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+  background: #f1f5f9;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 700;
   color: var(--text-primary);
   text-transform: uppercase;
@@ -850,6 +872,7 @@ th.col-actions {
 .dl-table tbody tr:hover .file-ext-badge {
   background: var(--geist-ink);
   color: var(--text-on-dark);
+  border-color: var(--geist-ink);
 }
 
 .file-name {
@@ -859,32 +882,34 @@ th.col-actions {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 13px;
+  font-size: 13.5px;
   letter-spacing: -0.2px;
   line-height: 1.3;
 }
 
 .file-url {
   display: block;
-  font-size: 10.5px;
-  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  color: #475569; /* Sharp readable subtitle */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  margin-top: 2px;
+  margin-top: 3px;
   font-family: var(--mono);
 }
 
-/* Progress in table (Stark Ink Fill) */
+/* Progress in table (Stark High-Contrast Fill) */
 .tbl-progress-wrap {
   width: 100%;
 }
 
 .tbl-progress-track {
   width: 100%;
-  height: 5px;
-  background: var(--bg-track);
-  border-radius: 3px;
+  height: 6px;
+  background: #e2e8f0;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
   overflow: hidden;
   position: relative;
   margin-bottom: 4px;
@@ -892,88 +917,97 @@ th.col-actions {
 
 .tbl-progress-fill {
   height: 100%;
-  background: var(--geist-ink);
-  border-radius: 3px;
+  background: #0284c7; /* Vibrant sharp sky blue */
+  border-radius: 4px;
   transition: width 0.35s var(--ease-out-expo);
 }
 
 .tbl-progress-label {
-  font-size: 10px;
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text-primary);
   font-family: var(--mono);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* Speed and ETA cells */
 .speed-cell {
   font-family: var(--mono);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-primary);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .col-eta {
   font-family: var(--mono);
-  font-size: 11.5px;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .col-size {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text-primary);
-  font-weight: 500;
+  font-weight: 600;
 }
 
-/* Status badges (Flat Pills with Uppercase Mono) */
+/* Status badges — High Contrast */
 .status-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 3px 9px;
+  padding: 3px 10px;
   border-radius: var(--radius-pill);
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.8px;
   white-space: nowrap;
+  border: 1px solid transparent;
 }
 
 .status-badge.downloading {
-  background: var(--geist-ink);
-  color: var(--text-on-dark);
+  background: #0f172a;
+  color: #ffffff;
+  border-color: #0f172a;
 }
 
 .status-badge.completed {
-  background: #1a7a4a;
-  color: #fff;
+  background: #047857;
+  color: #ffffff;
+  border-color: #047857;
 }
 
 .status-badge.queued {
-  background: rgba(33, 37, 41, 0.14);
-  color: var(--text-primary);
+  background: #f1f5f9;
+  color: #1e293b;
+  border-color: var(--border-strong);
 }
 
 .status-badge.paused {
-  background: #5a4500;
-  color: #fff;
+  background: #b45309;
+  color: #ffffff;
+  border-color: #b45309;
 }
 
 .status-badge.error {
   background: #b91c1c;
-  color: #fff;
+  color: #ffffff;
+  border-color: #b91c1c;
 }
 
 .status-badge.cancelled {
-  background: rgba(33, 37, 41, 0.18);
-  color: var(--text-primary);
+  background: #f1f5f9;
+  color: #475569;
+  border-color: var(--border-strong);
 }
 
 .status-badge.connecting {
-  background: rgba(33, 37, 41, 0.1);
-  color: var(--geist-ink);
+  background: #f1f5f9;
+  color: #0284c7;
+  border-color: #0284c7;
   animation: blinkBadge 1.2s ease-in-out infinite;
 }
 
@@ -988,29 +1022,32 @@ th.col-actions {
 /* Row action buttons */
 .row-actions {
   display: flex;
-  gap: 4px;
+  gap: 5px;
   justify-content: flex-end;
   align-items: center;
 }
 
 .row-btn {
-  width: 26px;
-  height: 26px;
-  background: var(--bg-pill);
+  width: 28px;
+  height: 28px;
+  background: #ffffff;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: 12px;
   transition: all var(--transition-fast);
   flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .row-btn:hover {
   background: var(--geist-ink);
-  color: var(--text-on-dark);
+  color: #ffffff;
+  border-color: var(--geist-ink);
 }
 
 .row-btn:active {
@@ -1019,18 +1056,19 @@ th.col-actions {
 
 .row-btn.danger:hover {
   background: #b91c1c;
-  color: #fff;
+  color: #ffffff;
+  border-color: #b91c1c;
 }
 
 .row-btn.danger:active {
   transform: scale(0.92);
 }
 
-/* Table empty state */
+/* Table empty state — High Contrast */
 .table-empty {
   text-align: center;
-  padding: 64px 20px;
-  color: var(--text-muted);
+  padding: 68px 20px;
+  color: var(--text-secondary);
 }
 
 .table-empty[hidden] {
@@ -1038,15 +1076,17 @@ th.col-actions {
 }
 
 .empty-illus {
-  width: 64px;
-  height: 64px;
-  background: var(--bg-card);
+  width: 72px;
+  height: 72px;
+  background: #f1f5f9;
+  border: 1px solid var(--border-strong);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 16px;
-  color: var(--text-muted);
+  margin: 0 auto 18px;
+  color: var(--text-primary);
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.04);
 }
 
 .empty-illus svg {
@@ -1054,26 +1094,19 @@ th.col-actions {
   will-change: transform;
 }
 
-.table-empty p {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 4px;
-  letter-spacing: -0.3px;
-}
-
 .empty-title {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 16px;
+  font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   letter-spacing: -0.3px;
 }
 
 .table-empty span,
 .empty-sub {
-  font-size: 12px;
-  color: var(--text-muted);
+  font-size: 13px;
+  color: #475569;
+  font-weight: 500;
 }
 
 /* ════════════════════════════════════════════════════════════════

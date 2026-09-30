@@ -117,6 +117,13 @@ export function playDownloadStartAnimation(onComplete?: () => void): void {
   animationInterval = setInterval(() => {
     currentFrame++;
 
+    // End of animation sequence — stop before drawing any more frames
+    if (currentFrame >= TOTAL_FRAMES) {
+      stopDownloadStartAnimation();
+      if (onComplete) onComplete();
+      return;
+    }
+
     // Calculate progress through a 14-frame cycle (2 cycles total)
     const cycleFrames = 14;
     const cycleProgress = (currentFrame % cycleFrames) / cycleFrames;
@@ -147,12 +154,6 @@ export function playDownloadStartAnimation(onComplete?: () => void): void {
     const badgeColor = badgePulseColors[currentFrame % badgePulseColors.length] || '#00f0ff';
     chrome.action.setBadgeBackgroundColor({ color: badgeColor });
     chrome.action.setBadgeText({ text: currentFrame % 4 < 2 ? '↓' : '⤓' });
-
-    // End of animation sequence
-    if (currentFrame >= TOTAL_FRAMES) {
-      stopDownloadStartAnimation();
-      if (onComplete) onComplete();
-    }
   }, FRAME_DELAY_MS);
 }
 
@@ -167,13 +168,20 @@ export function stopDownloadStartAnimation(): void {
   currentFrame = 0;
 
   try {
-    chrome.action.setIcon({
-      path: {
-        16:  'src/assets/icons/icon16.png',
-        32:  'src/assets/icons/icon32.png',
-        48:  'src/assets/icons/icon48.png',
-        128: 'src/assets/icons/icon128.png',
-      },
+    // In Chrome MV3, passing path: {} resets any programmatic icon (both imageData and custom path)
+    // back to the default icon specified in manifest.json.
+    chrome.action.setIcon({ path: {} }, () => {
+      if (chrome.runtime?.lastError) {
+        // Fallback to explicit relative paths if needed
+        chrome.action.setIcon({
+          path: {
+            16:  'src/assets/icons/icon16.png',
+            32:  'src/assets/icons/icon32.png',
+            48:  'src/assets/icons/icon48.png',
+            128: 'src/assets/icons/icon128.png',
+          },
+        });
+      }
     });
   } catch {
     // Ignore in tests or unloaded contexts
