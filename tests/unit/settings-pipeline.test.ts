@@ -17,7 +17,9 @@ describe('Settings Pipeline & Logic Enforcement', () => {
   test('default settings contain all necessary configuration keys', () => {
     expect(DEFAULT_SETTINGS.maxConcurrent).toBe(3);
     expect(DEFAULT_SETTINGS.maxChunks).toBe(8);
+    expect(DEFAULT_SETTINGS.minChunkSizeMB).toBe(2);
     expect(DEFAULT_SETTINGS.speedLimitKBps).toBe(0);
+    expect(DEFAULT_SETTINGS.defaultSavePath).toBe('');
     expect(DEFAULT_SETTINGS.autoStart).toBe(true);
     expect(DEFAULT_SETTINGS.showNotifications).toBe(true);
     expect(DEFAULT_SETTINGS.verifyIntegrity).toBe(true);

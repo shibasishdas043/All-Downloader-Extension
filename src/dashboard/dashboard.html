@@ -389,11 +389,31 @@
 
           <div class="setting-row">
             <div class="setting-info">
+              <span class="setting-label">Min Chunk Size (MB)</span>
+              <span class="setting-desc">Minimum file size to split into parallel segments</span>
+            </div>
+            <div class="setting-control">
+              <input type="number" id="setting-min-chunk-size" class="text-input-sm" min="1" max="100" placeholder="2" />
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
               <span class="setting-label">Speed Limit (KB/s)</span>
               <span class="setting-desc">0 = unlimited</span>
             </div>
             <div class="setting-control">
               <input type="number" id="setting-speed-limit" class="text-input-sm" min="0" placeholder="0" />
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Default Subfolder</span>
+              <span class="setting-desc">Folder within Downloads directory (leave blank for root)</span>
+            </div>
+            <div class="setting-control">
+              <input type="text" id="setting-save-path" class="text-input-sm" placeholder="e.g. All-Downloader" />
             </div>
           </div>
         </div>

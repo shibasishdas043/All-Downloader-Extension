@@ -20,7 +20,9 @@ export function loadSettingsUI(): void {
   setVal('setting-autostart',        s.autoStart);
   setVal('setting-max-concurrent',   s.maxConcurrent);
   setVal('setting-max-chunks',       s.maxChunks);
+  setVal('setting-min-chunk-size',   s.minChunkSizeMB);
   setVal('setting-speed-limit',      s.speedLimitKBps);
+  setVal('setting-save-path',        s.defaultSavePath);
   setVal('setting-verify-integrity', s.verifyIntegrity);
   setVal('setting-notifications',    s.showNotifications);
   setVal('setting-max-history',      s.maxHistoryItems);
@@ -69,7 +71,9 @@ export function bindSettings(onResetAll: () => void): void {
       autoStart:          Boolean(get('setting-autostart')),
       maxConcurrent:      Math.max(1, Math.min(10, Math.round(Number(get('setting-max-concurrent')) || 3))),
       maxChunks:          Math.max(1, Math.min(16, Math.round(Number(get('setting-max-chunks')) || 8))),
+      minChunkSizeMB:     Math.max(1, Math.min(100, Math.floor(Number(get('setting-min-chunk-size')) || 2))),
       speedLimitKBps:     Math.max(0, Math.floor(Number(get('setting-speed-limit')) || 0)),
+      defaultSavePath:    String(get('setting-save-path') || '').trim(),
       verifyIntegrity:    Boolean(get('setting-verify-integrity')),
       showNotifications:  Boolean(get('setting-notifications')),
       maxHistoryItems:    Math.max(10, Math.min(9999, Math.floor(Number(get('setting-max-history')) || 500))),
@@ -97,7 +101,12 @@ export function bindSettings(onResetAll: () => void): void {
   document.getElementById('btn-reset-all')?.addEventListener('click', async () => {
     if (!confirm('This will permanently clear all download history and reset lifetime stats. Are you sure?')) return;
     await sendMsg({ type: MSG.CLEAR_HISTORY });
-    state.downloads = {};
+    const dlRes = await sendMsg({ type: MSG.GET_DOWNLOADS });
+    if (dlRes?.downloads) {
+      state.downloads = Object.fromEntries(dlRes.downloads.map((d: any) => [d.id, d]));
+    } else {
+      state.downloads = {};
+    }
     state.histCurrentPage = 1;
     onResetAll();
 

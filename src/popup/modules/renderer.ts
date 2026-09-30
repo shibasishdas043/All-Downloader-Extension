@@ -129,7 +129,7 @@ export function populateItem(el: HTMLElement, dl: any): void {
   const isCompleted = st === DOWNLOAD_STATE.COMPLETED;
   const isFailed    = st === DOWNLOAD_STATE.CANCELLED || st === DOWNLOAD_STATE.ERROR;
   const isActive    = st === DOWNLOAD_STATE.DOWNLOADING || st === DOWNLOAD_STATE.CONNECTING;
-  const isPaused    = st === DOWNLOAD_STATE.PAUSED;
+  const isPaused    = st === DOWNLOAD_STATE.PAUSED || st === DOWNLOAD_STATE.QUEUED;
 
   el.querySelector('.ctrl-pause')?.classList.toggle('hidden', !isActive);
   el.querySelector('.ctrl-resume')?.classList.toggle('hidden', !isPaused);

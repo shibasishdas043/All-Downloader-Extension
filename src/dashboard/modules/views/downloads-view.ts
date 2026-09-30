@@ -106,7 +106,7 @@ export function buildRowActions(dl: any): string {
     DOWNLOAD_STATE.MERGING,
     DOWNLOAD_STATE.VERIFYING
   ].includes(dl.state);
-  const isPaused = dl.state === DOWNLOAD_STATE.PAUSED;
+  const isPaused = dl.state === DOWNLOAD_STATE.PAUSED || dl.state === DOWNLOAD_STATE.QUEUED;
   const isError  = dl.state === DOWNLOAD_STATE.ERROR || dl.state === DOWNLOAD_STATE.CANCELLED;
   const isDone   = dl.state === DOWNLOAD_STATE.COMPLETED;
 
@@ -117,7 +117,7 @@ export function buildRowActions(dl: any): string {
     </button>`;
   }
   if (isPaused) {
-    html += `<button class="row-btn row-btn-resume" data-act="resume" data-id="${dl.id}" title="Resume">
+    html += `<button class="row-btn row-btn-resume" data-act="resume" data-id="${dl.id}" title="${dl.state === DOWNLOAD_STATE.QUEUED ? 'Start' : 'Resume'}">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
     </button>`;
   }

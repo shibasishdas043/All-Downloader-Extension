@@ -71,7 +71,7 @@ export async function handleMessage(
     case MSG.RESUME_DOWNLOAD: {
       const dl = await getDownload(msg.id);
       const state = dl?.status || (dl as any)?.state;
-      if (!dl || state !== DOWNLOAD_STATE.PAUSED) return { ok: false };
+      if (!dl || (state !== DOWNLOAD_STATE.PAUSED && state !== DOWNLOAD_STATE.QUEUED)) return { ok: false };
       await coordinator.updateState(msg.id, DOWNLOAD_STATE.QUEUED as DownloadState);
       coordinator.queue.enqueue(msg.id);
       return { ok: true };
