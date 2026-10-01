@@ -45,21 +45,27 @@ export function sanitizeFolderSegment(seg: string): string {
   return safe;
 }
 
-export function buildSavePath(subFolder: string, filename: string): string {
-  if (!subFolder || typeof subFolder !== 'string' || !subFolder.trim()) {
-    return filename;
+export function buildSavePath(subFolder: string, filename: string, categoryFolder?: string): string {
+  const parts: string[] = [];
+
+  if (subFolder && typeof subFolder === 'string' && subFolder.trim()) {
+    const cleanFolder = subFolder
+      .replace(/\\/g, '/')
+      .replace(/^\/+/, '')
+      .replace(/\/+$/, '')
+      .split('/')
+      .map(seg => sanitizeFolderSegment(seg))
+      .filter(Boolean);
+    parts.push(...cleanFolder);
   }
 
-  const cleanFolder = subFolder
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .replace(/\/+$/, '')
-    .split('/')
-    .map(seg => sanitizeFolderSegment(seg))
-    .filter(Boolean)
-    .join('/');
+  if (categoryFolder && typeof categoryFolder === 'string' && categoryFolder.trim()) {
+    const cleanCat = sanitizeFolderSegment(categoryFolder.trim());
+    if (cleanCat) parts.push(cleanCat);
+  }
 
-  return cleanFolder ? `${cleanFolder}/${filename}` : filename;
+  const cleanFilename = sanitizeFilename(filename);
+  return parts.length > 0 ? `${parts.join('/')}/${cleanFilename}` : cleanFilename;
 }
 
 export function escapeRegex(str: string): string {

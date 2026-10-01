@@ -74,6 +74,35 @@ describe('IDM-Grade Multi-Segment Range Math', () => {
     const sum = segments.reduce((acc, s) => acc + s.length, 0);
     expect(sum).toBe(totalSize);
   });
+
+  test('parses filename correctly from RFC 5987 and standard Content-Disposition', async () => {
+    const { parseFilename } = await import('../../src/background/download-engine/probe.ts');
+
+    const res1 = new Response(null, {
+      headers: {
+        'Content-Disposition': "attachment; filename*=UTF-8''my%20presentation%20%28v2%29.pdf",
+      },
+    });
+    expect(parseFilename(res1, 'https://example.com/download')).toBe('my presentation (v2).pdf');
+
+    const res2 = new Response(null, {
+      headers: {
+        'Content-Disposition': 'attachment; filename="archive_2026.tar.gz"',
+      },
+    });
+    expect(parseFilename(res2, 'https://example.com/file')).toBe('archive_2026.tar.gz');
+
+    // Fallback to URL pathname if no Content-Disposition
+    const res3 = new Response(null);
+    expect(parseFilename(res3, 'https://cdn.example.org/files/installer-x64.exe?token=123')).toBe('installer-x64.exe');
+  });
+
+  test('extracts total file size accurately from Content-Range header', async () => {
+    const contentRange = 'bytes 0-0/52428800';
+    const crMatch = contentRange.match(/bytes\s+\d+-\d+\/(\d+)/i);
+    expect(crMatch).not.toBeNull();
+    expect(parseInt(crMatch![1], 10)).toBe(52428800);
+  });
 });
 
 describe('SpeedTracker Pipeline', () => {

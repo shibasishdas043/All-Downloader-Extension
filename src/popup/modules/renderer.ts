@@ -4,7 +4,7 @@
 import { DOWNLOAD_STATE, UI } from '../../shared/constants.js';
 import {
   formatBytes, formatSpeed, formatHumanETA,
-  truncateName
+  truncateName, getExtension
 } from '../../shared/utils.js';
 import type { DownloadState } from '../../shared/types.js';
 import { $list, $empty, $statusActive, $statusSpeed, $statusQueue, $tmpl } from './dom.js';

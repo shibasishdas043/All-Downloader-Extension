@@ -76,6 +76,29 @@ export const MSG = Object.freeze({
   USER_DISMISSED_CONTEXT_MENU: 'USER_DISMISSED_CONTEXT_MENU',
 } as const);
 
+// ── Category Folder Names ─────────────────────────────────────
+export const CATEGORY_FOLDER_NAMES: Record<FileCategory, string> = Object.freeze({
+  video:       'Videos',
+  audio:       'Audio',
+  image:       'Images',
+  document:    'Documents',
+  archive:     'Archives',
+  application: 'Applications',
+  other:       'Other',
+});
+
+// ── Heavy / High-Bandwidth Extensions (Always Intercept) ──────
+export const HEAVY_EXTENSIONS = new Set<string>([
+  // Disk Images & Virtual Machines
+  'iso', 'img', 'bin', 'vhd', 'vhdx', 'vmdk', 'qcow2', 'dmg',
+  // Compressed & Multi-part Archives
+  'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz', 'tbz2', 'zst', 'lzma', 'cab', 'wim', 'cpio',
+  // Installers & Executables & Packages
+  'exe', 'msi', 'apk', 'pkg', 'deb', 'rpm', 'appimage', 'run',
+  // High-bitrate Video & Media
+  'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', 'ts', 'm2ts', 'vob',
+]);
+
 // ── Storage Keys ─────────────────────────────────────────────
 export const STORAGE_KEY = Object.freeze({
   DOWNLOADS: 'all_downloader_downloads',
@@ -85,17 +108,19 @@ export const STORAGE_KEY = Object.freeze({
 
 // ── Default Settings ──────────────────────────────────────────
 export const DEFAULT_SETTINGS = Object.freeze({
-  maxConcurrent:      3,     // max simultaneous downloads
-  maxChunks:          8,     // segments per file
-  minChunkSizeMB:     2,     // min file size to chunk (MB)
-  speedLimitKBps:     0,     // 0 = unlimited
-  defaultSavePath:    '',    // empty = browser default
-  autoStart:          true,  // auto-start queued downloads
-  showNotifications:  true,  // OS notifications on complete
-  verifyIntegrity:    true,  // SHA-256 check when server provides hash
-  interceptDownloads: true,  // intercept all browser downloads
-  darkMode:           true,
-  maxHistoryItems:    500,
+  maxConcurrent:             3,     // max simultaneous downloads
+  maxChunks:                 8,     // segments per file
+  minChunkSizeMB:            2,     // min file size to chunk (MB)
+  speedLimitKBps:            0,     // 0 = unlimited
+  defaultSavePath:           '',    // empty = browser default
+  autoStart:                 true,  // auto-start queued downloads
+  showNotifications:         true,  // OS notifications on complete
+  verifyIntegrity:           true,  // SHA-256 check when server provides hash
+  interceptDownloads:        true,  // intercept browser downloads dynamically for all file types and sizes
+  preserveChunksOnCancel:    true,  // keep 100% downloaded chunks if user closes/cancels Save As dialog
+  organizeByCategoryFolders: false, // subfolder per category (Videos, Archives, etc.)
+  darkMode:                  true,
+  maxHistoryItems:           500,
 });
 
 // ── UI Config ─────────────────────────────────────────────────

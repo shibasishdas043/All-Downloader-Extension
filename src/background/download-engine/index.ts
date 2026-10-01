@@ -13,7 +13,7 @@ import type {
   ProgressState,
 } from './types.js';
 import { probeUrl } from './probe.js';
-import type { RateLimiter } from './throttler.js';
+import { createThrottle, type RateLimiter } from './throttler.js';
 import { executeSingleDownload } from './single-download.js';
 import { executeChunkedDownload } from './chunked-download.js';
 import {
@@ -52,14 +52,27 @@ export async function startDownload(
   try {
     const meta = await probeUrl(download.url, controller.signal);
 
-    const totalSize = meta.contentLength;
+    const totalSize = meta.contentLength || download.filesize || 0;
     const acceptsRanges = meta.acceptsRanges;
     const filename = meta.filename || download.filename;
     const mimeType = meta.mimeType || download.mimeType || null;
+    const etag = meta.etag || download.etag || null;
+    const lastModified = meta.lastModified || download.lastModified || null;
+
+    download.etag = etag;
+    download.lastModified = lastModified;
 
     if (onMeta) {
       try {
-        await onMeta({ filename, mimeType, totalSize, hashExpected: meta.hashExpected });
+        await onMeta({
+          filename,
+          mimeType,
+          totalSize,
+          hashExpected: meta.hashExpected,
+          etag,
+          lastModified,
+          acceptsRanges,
+        });
       } catch (err) {
         console.warn('[ADL] onMeta callback error:', err);
       }
@@ -93,16 +106,53 @@ export async function startDownload(
 
     let result: DownloadResult;
     if (canChunk) {
-      result = await executeChunkedDownload({
-        download,
-        totalSize,
-        mimeType: mimeType || 'application/octet-stream',
-        settings,
-        controller,
-        throttle,
-        progress,
-        emit,
-      });
+      try {
+        result = await executeChunkedDownload({
+          download,
+          totalSize,
+          mimeType: mimeType || 'application/octet-stream',
+          settings,
+          controller,
+          throttle,
+          progress,
+          emit,
+        });
+      } catch (err: any) {
+        if (err?.name === 'RangeNotSupportedError' || err?.message?.includes('RangeNotSupported')) {
+          console.warn('[ADL] Server rejected byte range requests mid-stream. Falling back to single-stream download.');
+          await clearChunks(download.id);
+          progress.received = 0;
+          emit();
+          result = await executeSingleDownload({
+            download,
+            fallbackMime: mimeType || 'application/octet-stream',
+            controller,
+            throttle,
+            progress,
+            emit,
+          });
+        } else if (err?.name === 'ResourceModifiedError' || err?.message?.includes('ResourceModified')) {
+          console.warn('[ADL] Resource modified on server mid-flight (ETag mismatch). Re-probing and restarting cleanly.');
+          await clearChunks(download.id);
+          progress.received = 0;
+          emit();
+          const freshMeta = await probeUrl(download.url, controller.signal);
+          download.etag = freshMeta.etag;
+          download.lastModified = freshMeta.lastModified;
+          result = await executeChunkedDownload({
+            download,
+            totalSize: freshMeta.contentLength || totalSize,
+            mimeType: freshMeta.mimeType || mimeType || 'application/octet-stream',
+            settings,
+            controller,
+            throttle,
+            progress,
+            emit,
+          });
+        } else {
+          throw err;
+        }
+      }
     } else {
       result = await executeSingleDownload({
         download,

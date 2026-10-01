@@ -6,6 +6,7 @@ import { displayInPageToast } from '../../content/toast.js';
 
 export function showDownloadStartedToast(filename: string): void {
   try {
+    if (typeof chrome === 'undefined' || !chrome.tabs?.query) return;
     chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
       if (chrome.runtime?.lastError || !tabs || tabs.length === 0) {
         chrome.tabs.query({ active: true, currentWindow: true }, (fallback) => {

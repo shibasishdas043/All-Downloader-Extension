@@ -68,6 +68,12 @@ chrome.downloads.onChanged.addListener((delta) => {
   coordinator.handleChromeDownloadChange(delta);
 });
 
+if (chrome.downloads.onDeterminingFilename) {
+  chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    return coordinator.handleDeterminingFilename(item, suggest);
+  });
+}
+
 // ─────────────────────────────────────────────────────────────
 //  Context Menu & Commands & Alarms
 // ─────────────────────────────────────────────────────────────

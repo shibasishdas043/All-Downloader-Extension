@@ -53,10 +53,15 @@ export function openDashboard(view?: string): void {
 }
 
 export function showNotification(title: string, message: string): void {
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: chrome.runtime.getURL('src/assets/icons/icon48.png'),
-    title,
-    message,
-  });
+  try {
+    if (typeof chrome === 'undefined' || !chrome.notifications?.create) return;
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: chrome.runtime?.getURL ? chrome.runtime.getURL('src/assets/icons/icon48.png') : '',
+      title,
+      message,
+    });
+  } catch {
+    // Ignore notification errors in test or headless environments
+  }
 }

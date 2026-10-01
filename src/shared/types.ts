@@ -60,9 +60,13 @@ export interface DownloadItem {
   hashExpected?: string | null;
   hashActual?: string | null;
   hashVerified?: boolean | null;
+  etag?: string | null;
+  lastModified?: string | null;
   savePath?: string;
   chromeDownloadId?: number | null;
   scheduledTime?: number | null;
+  isReadyToSave?: boolean;
+  chunkCount?: number;
 }
 
 export interface ExtensionSettings {
@@ -75,6 +79,8 @@ export interface ExtensionSettings {
   showNotifications: boolean;
   verifyIntegrity: boolean;
   interceptDownloads: boolean;
+  preserveChunksOnCancel: boolean;
+  organizeByCategoryFolders: boolean;
   darkMode: boolean;
   maxHistoryItems: number;
 }

@@ -5,6 +5,7 @@
 // ============================================================
 import { MSG } from '../shared/constants.js';
 import { loadAllChunks } from '../background/storage.js';
+import { computeBlobSha256 } from '../shared/streaming-sha256.js';
 
 const activeBlobUrls = new Map<string, { downloadId: string; created: number }>();
 
@@ -64,11 +65,7 @@ async function handleCreateBlobUrl(params: {
   // 3. Compute SHA-256 checksum if integrity verification is requested
   let sha256: string | undefined;
   if (verifyHash) {
-    const arrayBuffer = await compositeBlob.arrayBuffer();
-    const digestBuffer = await crypto.subtle.digest('SHA-256', arrayBuffer);
-    sha256 = Array.from(new Uint8Array(digestBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    sha256 = await computeBlobSha256(compositeBlob);
   }
 
   // 4. Create native blob: URL

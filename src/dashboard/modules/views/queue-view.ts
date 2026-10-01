@@ -4,7 +4,7 @@
 import { DOWNLOAD_STATE, MSG } from '../../../shared/constants.js';
 import {
   formatBytes, relativeTime, truncateName,
-  getExtension
+  getExtension, detectCategory
 } from '../../../shared/utils.js';
 import { state } from '../state.js';
 import { sendMsg } from '../api.js';

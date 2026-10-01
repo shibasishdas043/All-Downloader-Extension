@@ -1,7 +1,7 @@
 // ============================================================
 //  All-Downloader — Download Coordinator Service
 // ============================================================
-import { MSG, DOWNLOAD_STATE } from '../../shared/constants.js';
+import { MSG, DOWNLOAD_STATE, CATEGORY_FOLDER_NAMES, HEAVY_EXTENSIONS } from '../../shared/constants.js';
 import {
   generateId, getFilenameFromUrl, detectCategory,
   calcPercent
@@ -21,7 +21,43 @@ import {
   type PendingChromeDownload
 } from './offscreen-manager.js';
 import { showDownloadStartedToast } from './toast-manager.js';
-import { RightClickDetector, urlsMatch } from './right-click-detector.js';
+import { RightClickDetector, urlsMatch, getFilename } from './right-click-detector.js';
+
+export function isHeavyDownload(item: chrome.downloads.DownloadItem): boolean {
+  const urlOrFn = item.filename || item.url || '';
+  try {
+    const url = new URL(urlOrFn, 'https://example.com');
+    const pathname = url.pathname;
+    const lastDot = pathname.lastIndexOf('.');
+    if (lastDot > 0 && lastDot < pathname.length - 1) {
+      const ext = pathname.substring(lastDot + 1).toLowerCase();
+      if (HEAVY_EXTENSIONS.has(ext)) return true;
+    }
+  } catch {
+    const lastDot = urlOrFn.lastIndexOf('.');
+    if (lastDot > 0 && lastDot < urlOrFn.length - 1) {
+      const ext = urlOrFn.substring(lastDot + 1).split(/[?#]/)[0].toLowerCase();
+      if (HEAVY_EXTENSIONS.has(ext)) return true;
+    }
+  }
+
+  // Check MIME type if available
+  const mime = (item.mime || '').toLowerCase();
+  if (
+    mime.includes('zip') ||
+    mime.includes('tar') ||
+    mime.includes('compressed') ||
+    mime.includes('archive') ||
+    mime.includes('iso') ||
+    mime.includes('diskimage') ||
+    (mime.includes('octet-stream') && (urlOrFn.includes('.iso') || urlOrFn.includes('.bin') || urlOrFn.includes('.zip'))) ||
+    mime.startsWith('video/')
+  ) {
+    return true;
+  }
+
+  return false;
+}
 
 export interface AddDownloadOptions {
   url: string;
@@ -35,6 +71,7 @@ export class DownloadCoordinator {
   public settings: ExtensionSettings;
   public downloadCache = new Map<string, DownloadItem>();
   public pendingChromeDownloads = new Map<number, PendingChromeDownload>();
+  public pendingBlobSaves = new Map<string, { id: string; targetSavePath: string; safeFilename: string; fileSize: number }>();
   public ownBlobUrls = new Set<string>();
   public rightClickDetector = new RightClickDetector();
   public queue: QueueManager;
@@ -134,6 +171,12 @@ export class DownloadCoordinator {
     const dl = await getDownload(downloadId);
     if (!dl) { this.queue.markDone(downloadId); return; }
 
+    // If chunks are already 100% downloaded in local storage and waiting to be saved to disk
+    if ((dl as any).isReadyToSave && (dl.filesize || dl.receivedBytes)) {
+      await this.saveExistingDownloadToDisk(dl);
+      return;
+    }
+
     await this.updateState(downloadId, DOWNLOAD_STATE.CONNECTING as DownloadState, { startedAt: Date.now() });
 
     await startDownload(
@@ -186,9 +229,12 @@ export class DownloadCoordinator {
           }
 
           const safeFilename = sanitizeFilename(finalFilename);
-          const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename);
           const resolvedMime = result.mimeType || dl.mimeType || null;
           const resolvedCategory = detectCategory(safeFilename, resolvedMime);
+          const categoryFolder = this.settings.organizeByCategoryFolders
+            ? (CATEGORY_FOLDER_NAMES[resolvedCategory] || undefined)
+            : undefined;
+          const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
 
           // 1. Ensure Offscreen Document is active
           await ensureOffscreenDocument();
@@ -224,8 +270,14 @@ export class DownloadCoordinator {
 
           const blobUrl = response.blobUrl;
           this.ownBlobUrls.add(blobUrl);
+          this.pendingBlobSaves.set(blobUrl, {
+            id,
+            targetSavePath: savePath,
+            safeFilename,
+            fileSize: actualSize,
+          });
 
-          // Update with final MIME type, category, integrity verification, and verified file size
+          // Update with final MIME type, category, integrity verification, verified file size, and total chunks
           await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
             category: resolvedCategory,
             mimeType: resolvedMime,
@@ -235,6 +287,9 @@ export class DownloadCoordinator {
             filesize: actualSize,
             received: actualSize,
             receivedBytes: actualSize,
+            totalChunks: result.chunkCount,
+            chunkCount: result.chunkCount,
+            savePath,
           });
 
           // 3. Initiate native Chrome streaming download to user disk
@@ -249,6 +304,7 @@ export class DownloadCoordinator {
               if (chrome.runtime.lastError || !chromeDlId) {
                 const err = chrome.runtime.lastError?.message || 'Chrome download API rejected request';
                 console.error('[ADL] save error:', err);
+                this.pendingBlobSaves.delete(blobUrl);
                 revokeBlobUrl(blobUrl);
                 this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
                   error: `Save failed: ${err} — click Retry`,
@@ -264,6 +320,7 @@ export class DownloadCoordinator {
                 blobUrl,
                 safeFilename,
                 fileSize: actualSize,
+                targetSavePath: savePath,
               });
             },
           );
@@ -301,6 +358,18 @@ export class DownloadCoordinator {
           updates.total = meta.totalSize;
           updates.filesize = meta.totalSize;
         }
+        if (meta.etag) {
+          updates.etag = meta.etag;
+          dl.etag = meta.etag;
+        }
+        if (meta.lastModified) {
+          updates.lastModified = meta.lastModified;
+          dl.lastModified = meta.lastModified;
+        }
+        if (typeof meta.acceptsRanges === 'boolean') {
+          updates.resumable = meta.acceptsRanges;
+          dl.resumable = meta.acceptsRanges;
+        }
         await this.updateState(downloadId, DOWNLOAD_STATE.DOWNLOADING as DownloadState, updates);
         broadcastMessage({
           type: MSG.DOWNLOAD_PROGRESS,
@@ -310,6 +379,113 @@ export class DownloadCoordinator {
       },
       this.rateLimiter
     );
+  }
+
+  public async saveExistingDownloadToDisk(dl: DownloadItem): Promise<void> {
+    const id = dl.id;
+    try {
+      await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState);
+      const safeFilename = sanitizeFilename(dl.filename);
+      const resolvedCategory = dl.category || detectCategory(safeFilename, dl.mimeType || undefined);
+      const categoryFolder = this.settings.organizeByCategoryFolders
+        ? (CATEGORY_FOLDER_NAMES[resolvedCategory] || undefined)
+        : undefined;
+      const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
+      const chunkCount = dl.totalChunks || (dl as any).chunkCount || 1;
+      const actualSize = dl.filesize || dl.receivedBytes || 0;
+
+      await ensureOffscreenDocument();
+
+      const response = await chrome.runtime.sendMessage({
+        type: MSG.OFFSCREEN_CREATE_BLOB_URL,
+        downloadId: id,
+        chunkCount,
+        mimeType: dl.mimeType || 'application/octet-stream',
+        verifyHash: false,
+      });
+
+      if (!response || !response.success || !response.blobUrl) {
+        throw new Error(response?.error || 'Failed to assemble existing download chunks from storage');
+      }
+
+      const blobUrl = response.blobUrl;
+      this.ownBlobUrls.add(blobUrl);
+      this.pendingBlobSaves.set(blobUrl, {
+        id,
+        targetSavePath: savePath,
+        safeFilename,
+        fileSize: actualSize,
+      });
+
+      chrome.downloads.download(
+        {
+          url: blobUrl,
+          filename: savePath,
+          saveAs: false,
+          conflictAction: 'uniquify',
+        },
+        (chromeDlId) => {
+          if (chrome.runtime.lastError || !chromeDlId) {
+            const err = chrome.runtime.lastError?.message || 'Chrome download API rejected request';
+            this.pendingBlobSaves.delete(blobUrl);
+            revokeBlobUrl(blobUrl);
+            this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
+              error: `Save failed: ${err} — click Retry`,
+              errorMessage: `Save failed: ${err} — click Retry`,
+            });
+            this.queue.markDone(id);
+            broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id, error: err });
+            return;
+          }
+
+          this.pendingChromeDownloads.set(chromeDlId, {
+            id,
+            blobUrl,
+            safeFilename,
+            fileSize: actualSize,
+            targetSavePath: savePath,
+          });
+        }
+      );
+    } catch (err: any) {
+      await this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
+        error: `Save failed: ${err?.message || 'Unknown error'} — click Retry`,
+        errorMessage: `Save failed: ${err?.message || 'Unknown error'} — click Retry`,
+      });
+      this.queue.markDone(id);
+      broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id, error: err?.message });
+    }
+  }
+
+  public handleDeterminingFilename(
+    item: chrome.downloads.DownloadItem,
+    suggest: (suggestion?: { filename: string; conflictAction?: 'uniquify' | 'overwrite' | 'prompt' }) => void
+  ): boolean {
+    let targetPath = '';
+
+    const pendingBlob = this.pendingBlobSaves.get(item.url);
+    if (pendingBlob?.targetSavePath) {
+      targetPath = pendingBlob.targetSavePath;
+    } else {
+      let pending = this.pendingChromeDownloads.get(item.id);
+      if (!pending && item.url) {
+        pending = Array.from(this.pendingChromeDownloads.values()).find(p => p.blobUrl === item.url);
+      }
+      if (pending?.targetSavePath) {
+        targetPath = pending.targetSavePath;
+      }
+    }
+
+    if (targetPath) {
+      suggest({
+        filename: targetPath,
+        conflictAction: 'uniquify',
+      });
+      return true;
+    }
+
+    suggest();
+    return false;
   }
 
   public async restoreInProgressDownloads(): Promise<void> {
@@ -342,18 +518,25 @@ export class DownloadCoordinator {
     if (delta.state) {
       if (delta.state.current === 'complete') {
         this.pendingChromeDownloads.delete(delta.id);
+        this.pendingBlobSaves.delete(pending.blobUrl);
         revokeBlobUrl(pending.blobUrl);
         await clearChunks(pending.id);
 
         const completedAt = Date.now();
         const dlRecord: any = await getDownload(pending.id);
         let resolvedSize = pending.fileSize || dlRecord?.filesize || dlRecord?.total || dlRecord?.receivedBytes || dlRecord?.received || 0;
+        let actualFinalPath = pending.targetSavePath || pending.safeFilename;
+        let actualFilename = pending.safeFilename;
 
-        if (resolvedSize <= 0 && typeof chrome !== 'undefined' && chrome.downloads?.search) {
+        if (typeof chrome !== 'undefined' && chrome.downloads?.search) {
           try {
             const results = await chrome.downloads.search({ id: delta.id });
             if (results && results[0]) {
-              resolvedSize = results[0].fileSize || results[0].totalBytes || results[0].bytesReceived || 0;
+              resolvedSize = results[0].fileSize || results[0].totalBytes || results[0].bytesReceived || resolvedSize;
+              if (results[0].filename) {
+                actualFinalPath = results[0].filename;
+                actualFilename = getFilename(results[0].filename) || pending.safeFilename;
+              }
             }
           } catch {
             // ignore
@@ -366,7 +549,8 @@ export class DownloadCoordinator {
           progress: 100,
           speed: 0,
           eta: 0,
-          filename: pending.safeFilename,
+          filename: actualFilename,
+          savePath: actualFinalPath,
           total: resolvedSize,
           filesize: resolvedSize,
           received: resolvedSize,
@@ -378,7 +562,7 @@ export class DownloadCoordinator {
         broadcastMessage({
           type: MSG.DOWNLOAD_COMPLETED,
           id: pending.id,
-          filename: pending.safeFilename,
+          filename: actualFilename,
           total: resolvedSize,
           filesize: resolvedSize,
           received: resolvedSize,
@@ -387,24 +571,42 @@ export class DownloadCoordinator {
         });
 
         if (this.settings.showNotifications) {
-          showNotification('Download Complete', pending.safeFilename);
+          showNotification('Download Complete', actualFilename);
         }
 
         await this.pruneHistory();
 
         await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);
       } else if (delta.state.current === 'interrupted') {
+        const isUserCancel = delta.error?.current === 'USER_CANCELED';
         this.pendingChromeDownloads.delete(delta.id);
+        this.pendingBlobSaves.delete(pending.blobUrl);
         revokeBlobUrl(pending.blobUrl);
-        await clearChunks(pending.id);
 
-        await this.updateState(pending.id, DOWNLOAD_STATE.ERROR as DownloadState, {
-          error: `Chrome download interrupted (${delta.error?.current || 'unknown'}) — click Retry`,
-          errorMessage: `Chrome download interrupted (${delta.error?.current || 'unknown'}) — click Retry`,
-        });
+        if (isUserCancel && this.settings.preserveChunksOnCancel) {
+          // Do NOT clear chunks! The entire download is safely stored in local IndexedDB.
+          await this.updateState(pending.id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+            error: null,
+            errorMessage: 'Save location was cancelled. Download is 100% complete in storage — click Resume / Retry to save to disk.',
+            percent: 100,
+            progress: 100,
+            isReadyToSave: true,
+          } as any);
+          broadcastMessage({
+            type: MSG.DOWNLOAD_PAUSED,
+            id: pending.id,
+            isReadyToSave: true,
+          });
+        } else {
+          await clearChunks(pending.id);
+          await this.updateState(pending.id, DOWNLOAD_STATE.ERROR as DownloadState, {
+            error: `Chrome download interrupted (${delta.error?.current || 'unknown'}) — click Retry`,
+            errorMessage: `Chrome download interrupted (${delta.error?.current || 'unknown'}) — click Retry`,
+          });
+          broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id: pending.id, error: delta.error?.current });
+        }
+
         this.queue.markDone(pending.id);
-        broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id: pending.id, error: delta.error?.current });
-
         await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);
       }
     }
@@ -471,10 +673,6 @@ export class DownloadCoordinator {
       }
     } catch (tabErr) {
       console.warn('[ADL] Error querying active tabs for Save As detection:', tabErr);
-    }
-
-    if (item.filename && (item.filename.startsWith('/') || /^[A-Za-z]:[/\\]/.test(item.filename))) {
-      return;
     }
 
     chrome.downloads.cancel(item.id, () => {

@@ -16,16 +16,18 @@ export function loadSettingsUI(): void {
     else el.value = val ?? '';
   };
 
-  setVal('setting-intercept',        s.interceptDownloads);
-  setVal('setting-autostart',        s.autoStart);
-  setVal('setting-max-concurrent',   s.maxConcurrent);
-  setVal('setting-max-chunks',       s.maxChunks);
-  setVal('setting-min-chunk-size',   s.minChunkSizeMB);
-  setVal('setting-speed-limit',      s.speedLimitKBps);
-  setVal('setting-save-path',        s.defaultSavePath);
-  setVal('setting-verify-integrity', s.verifyIntegrity);
-  setVal('setting-notifications',    s.showNotifications);
-  setVal('setting-max-history',      s.maxHistoryItems);
+  setVal('setting-intercept',            s.interceptDownloads);
+  setVal('setting-autostart',            s.autoStart);
+  setVal('setting-max-concurrent',       s.maxConcurrent);
+  setVal('setting-max-chunks',           s.maxChunks);
+  setVal('setting-min-chunk-size',       s.minChunkSizeMB);
+  setVal('setting-speed-limit',          s.speedLimitKBps);
+  setVal('setting-save-path',            s.defaultSavePath);
+  setVal('setting-organize-categories',   s.organizeByCategoryFolders);
+  setVal('setting-preserve-chunks',       s.preserveChunksOnCancel);
+  setVal('setting-verify-integrity',     s.verifyIntegrity);
+  setVal('setting-notifications',        s.showNotifications);
+  setVal('setting-max-history',          s.maxHistoryItems);
 
   const sMaxConcurrent = document.getElementById('setting-max-concurrent') as HTMLInputElement | null;
   const vMaxConcurrent = document.getElementById('val-max-concurrent') as HTMLElement | null;
@@ -57,7 +59,7 @@ export function bindSettings(onResetAll: () => void): void {
   const vMaxChunks = document.getElementById('val-max-chunks') as HTMLElement | null;
   sMaxChunks?.addEventListener('input', () => updateSliderFill(sMaxChunks, vMaxChunks));
 
-  document.getElementById('btn-save-settings')?.addEventListener('click', async () => {
+  async function saveAllSettings(isAutoSave = false): Promise<void> {
     const get = (id: string) => {
       const el = document.getElementById(id) as HTMLInputElement | null;
       if (!el) return null;
@@ -67,16 +69,18 @@ export function bindSettings(onResetAll: () => void): void {
     };
 
     const newSettings = {
-      interceptDownloads: Boolean(get('setting-intercept')),
-      autoStart:          Boolean(get('setting-autostart')),
-      maxConcurrent:      Math.max(1, Math.min(10, Math.round(Number(get('setting-max-concurrent')) || 3))),
-      maxChunks:          Math.max(1, Math.min(16, Math.round(Number(get('setting-max-chunks')) || 8))),
-      minChunkSizeMB:     Math.max(1, Math.min(100, Math.floor(Number(get('setting-min-chunk-size')) || 2))),
-      speedLimitKBps:     Math.max(0, Math.floor(Number(get('setting-speed-limit')) || 0)),
-      defaultSavePath:    String(get('setting-save-path') || '').trim(),
-      verifyIntegrity:    Boolean(get('setting-verify-integrity')),
-      showNotifications:  Boolean(get('setting-notifications')),
-      maxHistoryItems:    Math.max(10, Math.min(9999, Math.floor(Number(get('setting-max-history')) || 500))),
+      interceptDownloads:        Boolean(get('setting-intercept')),
+      autoStart:                 Boolean(get('setting-autostart')),
+      maxConcurrent:             Math.max(1, Math.min(10, Math.round(Number(get('setting-max-concurrent')) || 3))),
+      maxChunks:                 Math.max(1, Math.min(16, Math.round(Number(get('setting-max-chunks')) || 8))),
+      minChunkSizeMB:            Math.max(1, Math.min(100, Math.floor(Number(get('setting-min-chunk-size')) || 2))),
+      speedLimitKBps:            Math.max(0, Math.floor(Number(get('setting-speed-limit')) || 0)),
+      defaultSavePath:           String(get('setting-save-path') || '').trim(),
+      organizeByCategoryFolders: Boolean(get('setting-organize-categories')),
+      preserveChunksOnCancel:    Boolean(get('setting-preserve-chunks')),
+      verifyIntegrity:           Boolean(get('setting-verify-integrity')),
+      showNotifications:         Boolean(get('setting-notifications')),
+      maxHistoryItems:           Math.max(10, Math.min(9999, Math.floor(Number(get('setting-max-history')) || 500))),
     };
 
     const res = await sendMsg({ type: MSG.UPDATE_SETTINGS, payload: newSettings });
@@ -92,11 +96,44 @@ export function bindSettings(onResetAll: () => void): void {
 
     const $status = document.getElementById('save-status');
     if ($status) {
-      $status.textContent = 'Settings Saved';
+      $status.textContent = isAutoSave ? 'Saved' : 'Settings Saved';
       $status.classList.add('visible');
-      setTimeout(() => $status.classList.remove('visible'), 2500);
+      setTimeout(() => $status.classList.remove('visible'), 2000);
     }
+  }
+
+  // Auto-save on toggle switches
+  [
+    'setting-intercept',
+    'setting-autostart',
+    'setting-organize-categories',
+    'setting-preserve-chunks',
+    'setting-verify-integrity',
+    'setting-notifications',
+  ].forEach((id) => {
+    document.getElementById(id)?.addEventListener('change', () => saveAllSettings(true));
   });
+
+  // Auto-save on sliders after release
+  ['setting-max-concurrent', 'setting-max-chunks'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('change', () => saveAllSettings(true));
+  });
+
+  // Auto-save on blur / change for text & number inputs
+  [
+    'setting-min-chunk-size',
+    'setting-speed-limit',
+    'setting-save-path',
+    'setting-max-history',
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    el?.addEventListener('change', () => saveAllSettings(true));
+    el?.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') saveAllSettings(true);
+    });
+  });
+
+  document.getElementById('btn-save-settings')?.addEventListener('click', () => saveAllSettings(false));
 
   document.getElementById('btn-reset-all')?.addEventListener('click', async () => {
     if (!confirm('This will permanently clear all download history and reset lifetime stats. Are you sure?')) return;

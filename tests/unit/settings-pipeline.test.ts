@@ -24,6 +24,8 @@ describe('Settings Pipeline & Logic Enforcement', () => {
     expect(DEFAULT_SETTINGS.showNotifications).toBe(true);
     expect(DEFAULT_SETTINGS.verifyIntegrity).toBe(true);
     expect(DEFAULT_SETTINGS.interceptDownloads).toBe(true);
+    expect(DEFAULT_SETTINGS.preserveChunksOnCancel).toBe(true);
+    expect(DEFAULT_SETTINGS.organizeByCategoryFolders).toBe(false);
     expect(DEFAULT_SETTINGS.maxHistoryItems).toBe(500);
   });
 

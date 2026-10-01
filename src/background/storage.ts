@@ -12,19 +12,59 @@ import type { DownloadItem, ExtensionSettings, ExtensionStats } from '../shared/
 
 function storageGet(keys: string[]): Promise<Record<string, any>> {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.get(keys, (result) => {
-      if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
-      else resolve(result);
+    if (typeof chrome === 'undefined' || !chrome.storage?.local?.get) {
+      resolve({});
+      return;
+    }
+    let called = false;
+    const res: any = (chrome.storage.local.get as any)(keys, (result: any) => {
+      if (called) return;
+      called = true;
+      if (chrome.runtime?.lastError) reject(chrome.runtime.lastError);
+      else resolve(result || {});
     });
+    if (res && typeof res.then === 'function') {
+      res.then((val: any) => {
+        if (!called) {
+          called = true;
+          resolve(val || {});
+        }
+      }).catch((err: any) => {
+        if (!called) {
+          called = true;
+          reject(err);
+        }
+      });
+    }
   });
 }
 
 function storageSet(data: Record<string, any>): Promise<void> {
   return new Promise((resolve, reject) => {
-    chrome.storage.local.set(data, () => {
-      if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+    if (typeof chrome === 'undefined' || !chrome.storage?.local?.set) {
+      resolve();
+      return;
+    }
+    let called = false;
+    const res: any = (chrome.storage.local.set as any)(data, () => {
+      if (called) return;
+      called = true;
+      if (chrome.runtime?.lastError) reject(chrome.runtime.lastError);
       else resolve();
     });
+    if (res && typeof res.then === 'function') {
+      res.then(() => {
+        if (!called) {
+          called = true;
+          resolve();
+        }
+      }).catch((err: any) => {
+        if (!called) {
+          called = true;
+          reject(err);
+        }
+      });
+    }
   });
 }
 
@@ -147,7 +187,10 @@ const IDB_NAME    = 'AllDownloaderChunks';
 const IDB_VERSION = 1;
 const IDB_STORE   = 'chunks';
 
-function openIDB(): Promise<IDBDatabase> {
+function openIDB(): Promise<IDBDatabase | null> {
+  if (typeof indexedDB === 'undefined') {
+    return Promise.resolve(null);
+  }
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(IDB_NAME, IDB_VERSION);
     req.onupgradeneeded = (e: IDBVersionChangeEvent) => {
@@ -162,6 +205,7 @@ function openIDB(): Promise<IDBDatabase> {
 /** Save a chunk (Blob or ArrayBuffer) for a given downloadId + chunkIndex. */
 export async function saveChunk(downloadId: string, chunkIndex: number, chunk: ArrayBuffer | Blob): Promise<void> {
   const db  = await openIDB();
+  if (!db) return;
   const key = `${downloadId}_${chunkIndex}`;
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(IDB_STORE, 'readwrite');
@@ -175,6 +219,7 @@ export async function saveChunk(downloadId: string, chunkIndex: number, chunk: A
 /** Load a chunk (ArrayBuffer or Blob). */
 export async function loadChunk(downloadId: string, chunkIndex: number): Promise<ArrayBuffer | Blob | null> {
   const db  = await openIDB();
+  if (!db) return null;
   const key = `${downloadId}_${chunkIndex}`;
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(IDB_STORE, 'readonly');
@@ -191,6 +236,7 @@ export async function loadChunk(downloadId: string, chunkIndex: number): Promise
 /** Load all chunks in sequential order using a single batch transaction. */
 export async function loadAllChunks(downloadId: string, count: number): Promise<(ArrayBuffer | Blob)[]> {
   const db = await openIDB();
+  if (!db) return [];
   return new Promise((resolve, reject) => {
     const tx = db.transaction(IDB_STORE, 'readonly');
     const store = tx.objectStore(IDB_STORE);
@@ -225,6 +271,7 @@ export async function loadAllChunks(downloadId: string, count: number): Promise<
 /** Delete all chunks for a download (after merge or cancel). */
 export async function clearChunks(downloadId: string): Promise<void> {
   const db = await openIDB();
+  if (!db) return;
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(IDB_STORE, 'readwrite');
     const store = tx.objectStore(IDB_STORE);

@@ -1,7 +1,7 @@
 // ============================================================
 //  All-Downloader — Popup Event Listeners & SW Message Handlers
 // ============================================================
-import { MSG } from '../../shared/constants.js';
+import { MSG, DOWNLOAD_STATE } from '../../shared/constants.js';
 import { $list, $modalAdd, $urlInput, showModal, hideModal } from './dom.js';
 import { downloads, setDownload } from './state.js';
 import {

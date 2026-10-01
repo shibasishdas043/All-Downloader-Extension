@@ -20,7 +20,15 @@ export interface ActiveRegistryEntry {
 export type ProgressCallback = (id: string, received: number, total: number, speedSnap: SpeedSnapshot) => void;
 export type CompleteCallback = (id: string, result: DownloadResult, filename: string) => Promise<void> | void;
 export type ErrorCallback = (id: string, errorMessage: string) => void;
-export type MetaCallback = (meta: { filename: string; mimeType: string | null; totalSize: number; hashExpected?: string | null }) => Promise<void> | void;
+export type MetaCallback = (meta: {
+  filename: string;
+  mimeType: string | null;
+  totalSize: number;
+  hashExpected?: string | null;
+  etag?: string | null;
+  lastModified?: string | null;
+  acceptsRanges?: boolean;
+}) => Promise<void> | void;
 
 export interface ProgressState {
   received: number;
@@ -34,6 +42,8 @@ export interface ProbeMeta {
   filename: string | null;
   mimeType: string | null;
   hashExpected?: string | null;
+  etag?: string | null;
+  lastModified?: string | null;
 }
 
 export interface SingleDownloadParams {

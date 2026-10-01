@@ -19,7 +19,7 @@
 | 🔐 SHA-256 integrity | Verifies file hash using Web Crypto API — no deps |
 | 📊 Statistics | Speed, ETA, category breakdown, lifetime totals |
 | 🎨 Beautiful UI | Dark navy theme, animated progress bars, micro-animations |
-| 🌍 Link Interceptor | Hover any downloadable link for a "Download with ADL" button |
+| 🌍 Download Interceptor | Smart intent tracking for browser downloads & context menus |
 | 🔒 Zero telemetry | No analytics, no server, 100% local |
 
 ---

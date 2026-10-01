@@ -51,6 +51,11 @@ export function stripQuery(raw: string): string {
 
 export function getFilename(raw: string): string {
   if (!raw) return '';
+  if (raw.includes('\\') || /^[a-zA-Z]:/.test(raw)) {
+    const parts = raw.split(/[/\\]/).filter(Boolean);
+    const last = parts[parts.length - 1] || '';
+    return decodeURIComponent(last.split('?')[0].split('#')[0]);
+  }
   try {
     const u = new URL(raw);
     const parts = u.pathname.split('/').filter(Boolean);

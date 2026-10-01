@@ -8,6 +8,7 @@ export interface PendingChromeDownload {
   blobUrl: string;
   safeFilename: string;
   fileSize: number;
+  targetSavePath?: string;
 }
 
 let creatingOffscreenPromise: Promise<void> | null = null;
@@ -68,10 +69,17 @@ export async function closeOffscreenDocumentIfIdle(hasPending: boolean): Promise
 }
 
 export function revokeBlobUrl(blobUrl: string): void {
-  chrome.runtime.sendMessage({
-    type: MSG.OFFSCREEN_REVOKE_BLOB_URL,
-    blobUrl,
-  }).catch(() => {});
+  try {
+    const res = chrome.runtime.sendMessage({
+      type: MSG.OFFSCREEN_REVOKE_BLOB_URL,
+      blobUrl,
+    });
+    if (res && typeof res.catch === 'function') {
+      res.catch(() => {});
+    }
+  } catch {
+    // Ignore runtime errors
+  }
 }
 
 export function cleanupPendingChromeDownload(
@@ -80,7 +88,14 @@ export function cleanupPendingChromeDownload(
 ): void {
   for (const [chromeDlId, pending] of pendingChromeDownloads.entries()) {
     if (pending.id === downloadId) {
-      chrome.downloads.cancel(chromeDlId).catch(() => {});
+      try {
+        const p = chrome.downloads.cancel(chromeDlId);
+        if (p && typeof p.catch === 'function') {
+          p.catch(() => {});
+        }
+      } catch {
+        // Ignore
+      }
       revokeBlobUrl(pending.blobUrl);
       pendingChromeDownloads.delete(chromeDlId);
       closeOffscreenDocumentIfIdle(pendingChromeDownloads.size > 0).catch(() => {});

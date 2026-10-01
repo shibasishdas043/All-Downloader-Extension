@@ -1,11 +1,11 @@
 // ============================================================
 //  All-Downloader — Popup User Actions
 // ============================================================
-import { MSG, DOWNLOAD_STATE } from '../../shared/constants.js';
+import { MSG, DOWNLOAD_STATE, UI } from '../../shared/constants.js';
 import { isValidUrl } from '../../shared/utils.js';
 import { sendMsg } from './api.js';
 import { downloads, getAllDownloads } from './state.js';
-import { $urlInput, $filenameInput, hideModal } from './dom.js';
+import { $urlInput, $filenameInput, hideModal, $list, $empty } from './dom.js';
 import { updateItem, updateStatusBar } from './renderer.js';
 
 export async function pauseDl(id: string): Promise<void> {

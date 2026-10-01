@@ -52,6 +52,11 @@ describe('buildSavePath', () => {
     expect(buildSavePath('downloads\\media', 'song.mp3')).toBe('downloads/media/song.mp3');
     expect(buildSavePath('/sub/path/', 'video.mp4')).toBe('sub/path/video.mp4');
   });
+
+  test('handles optional category folder correctly', () => {
+    expect(buildSavePath('AllDownloader', 'ubuntu.iso', 'Archives')).toBe('AllDownloader/Archives/ubuntu.iso');
+    expect(buildSavePath('', 'clip.mp4', 'Videos')).toBe('Videos/clip.mp4');
+  });
 });
 
 describe('escapeRegex', () => {
