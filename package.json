@@ -9,7 +9,8 @@
     "bundle": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build": "tsc --noEmit && vite build"
+    "build": "tsc --noEmit && vite build",
+    "package": "npm run build"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.4",

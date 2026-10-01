@@ -3,66 +3,71 @@
 //  Industry-grade multi-tier probe with HEAD + GET Range fallback,
 //  Content-Range total size parsing, and ETag/Last-Modified coherence
 // ============================================================
+import { hostGovernor } from './host-governor.js';
 import type { ProbeMeta } from './types.js';
 
-export const DEFAULT_HEAD_TIMEOUT_MS = 10_000;
+export const DEFAULT_HEAD_TIMEOUT_MS = 3_500;
+export const DEFAULT_RANGE_TIMEOUT_MS = 4_500;
 
 export async function probeUrl(
   url: string,
   signal: AbortSignal,
   timeoutMs = DEFAULT_HEAD_TIMEOUT_MS
 ): Promise<ProbeMeta> {
-  const headCtrl = new AbortController();
-  const timer = setTimeout(() => headCtrl.abort(), timeoutMs);
-  const combined = combineSignals(signal, headCtrl.signal);
+  const releaseProbeSlot = await hostGovernor.acquireProbeSlot(url, signal);
 
-  let res: Response | null = null;
-  let isRangeProbe = false;
-
-  // 1. First probe tier: HEAD request (lightweight metadata)
   try {
-    const headRes = await fetch(url, {
-      method: 'HEAD',
-      signal: combined,
-      credentials: 'include',
-      redirect: 'follow',
-    });
-    if (headRes.ok) {
-      res = headRes;
-    }
-  } catch {
-    // Network error or timeout on HEAD — will fall back to GET Range probe
-  } finally {
-    clearTimeout(timer);
-  }
+    const headCtrl = new AbortController();
+    const timer = setTimeout(() => headCtrl.abort(), timeoutMs);
+    const combined = combineSignals(signal, headCtrl.signal);
 
-  // 2. Second probe tier: GET Range: bytes=0-0 fallback
-  // Essential for CDNs (AWS CloudFront, Cloudflare, Google Drive, S3 presigned URLs)
-  // that return 405 Method Not Allowed or 403 Forbidden to HEAD requests
-  if (!res && !signal.aborted) {
-    const getCtrl = new AbortController();
-    const getTimer = setTimeout(() => getCtrl.abort(), timeoutMs);
-    const getCombined = combineSignals(signal, getCtrl.signal);
+    let res: Response | null = null;
+    let isRangeProbe = false;
 
+    // 1. First probe tier: HEAD request (lightweight metadata)
     try {
-      const getRes = await fetch(url, {
-        method: 'GET',
-        signal: getCombined,
-        headers: { Range: 'bytes=0-0' },
+      const headRes = await fetch(url, {
+        method: 'HEAD',
+        signal: combined,
         credentials: 'include',
         redirect: 'follow',
       });
-
-      if (getRes.ok || getRes.status === 206) {
-        res = getRes;
-        isRangeProbe = true;
+      if (headRes.ok) {
+        res = headRes;
       }
     } catch {
-      // Both HEAD and GET probe failed
+      // Network error or timeout on HEAD — will fall back to GET Range probe
     } finally {
-      clearTimeout(getTimer);
+      clearTimeout(timer);
     }
-  }
+
+    // 2. Second probe tier: GET Range: bytes=0-0 fallback
+    // Essential for CDNs (AWS CloudFront, Cloudflare, Google Drive, S3 presigned URLs)
+    // that return 405 Method Not Allowed or 403 Forbidden to HEAD requests
+    if (!res && !signal.aborted) {
+      const getCtrl = new AbortController();
+      const getTimer = setTimeout(() => getCtrl.abort(), DEFAULT_RANGE_TIMEOUT_MS);
+      const getCombined = combineSignals(signal, getCtrl.signal);
+
+      try {
+        const getRes = await fetch(url, {
+          method: 'GET',
+          signal: getCombined,
+          headers: { Range: 'bytes=0-0' },
+          credentials: 'include',
+          redirect: 'follow',
+        });
+
+        if (getRes.ok || getRes.status === 206) {
+          res = getRes;
+          isRangeProbe = true;
+        }
+      } catch {
+        // Both HEAD and GET probe failed
+      } finally {
+        clearTimeout(getTimer);
+      }
+    }
 
   if (!res) {
     return {
@@ -127,15 +132,18 @@ export async function probeUrl(
     hashExpected = shaMatch[1].trim();
   }
 
-  return {
-    contentLength,
-    acceptsRanges,
-    filename,
-    mimeType,
-    hashExpected,
-    etag,
-    lastModified,
-  };
+    return {
+      contentLength,
+      acceptsRanges,
+      filename,
+      mimeType,
+      hashExpected,
+      etag,
+      lastModified,
+    };
+  } finally {
+    releaseProbeSlot();
+  }
 }
 
 export function parseContentLength(res: Response): number {

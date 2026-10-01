@@ -5,7 +5,7 @@
   "description": "A secure, open-source download manager extension — intercept, chunk, schedule, and manage all your downloads.",
   "author": "All-Downloader Contributors",
   "default_locale": "en",
-  "homepage_url": "https://github.com/your-username/All-Downloader-Extension",
+  "homepage_url": "https://github.com/shibasishdas043/All-Downloader-Extension",
 
   "icons": {
     "16":  "src/assets/icons/icon16.png",
@@ -60,14 +60,15 @@
     {
       "resources": [
         "src/dashboard/dashboard.html",
-        "src/assets/icons/*"
+        "src/assets/icons/*",
+        "src/assets/fonts/*"
       ],
       "matches": ["<all_urls>"]
     }
   ],
 
   "content_security_policy": {
-    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' https: http: blob: data:"
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https: http: blob: data:"
   },
 
   "commands": {

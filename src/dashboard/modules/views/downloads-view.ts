@@ -6,6 +6,7 @@ import {
   formatBytes, formatSpeed, formatHumanETA,
   truncateName, getExtension
 } from '../../../shared/utils.js';
+import { renderChunkDrawerHtml } from '../../../shared/chunk-helpers.js';
 import { state } from '../state.js';
 import { sendMsg } from '../api.js';
 import { escHtml, renderPaginationControls } from '../dom-helpers.js';
@@ -80,6 +81,21 @@ export function flushProgressUpdates(): void {
     if (refs.statusCol && refs.statusCol.dataset.state !== dl.state) {
       refs.statusCol.dataset.state = dl.state;
       refs.statusCol.innerHTML = buildStateBadge(dl.state);
+      refs.tr.dataset.state = dl.state;
+      const actionsWrap = (refs as any).actionsWrap || refs.tr.querySelector('.row-actions');
+      if (actionsWrap) {
+        actionsWrap.innerHTML = buildRowActions(dl);
+      }
+    }
+
+    if (state.expandedChunkIds.has(id)) {
+      const nextTr = refs.tr.nextElementSibling;
+      const drawerTr = (nextTr && nextTr.classList.contains('chunk-drawer-tr') && (nextTr as HTMLElement).dataset.forId === id)
+        ? (nextTr as HTMLTableRowElement)
+        : document.querySelector(`tr.chunk-drawer-tr[data-for-id="${id}"]`) as HTMLTableRowElement | null;
+      if (drawerTr && drawerTr.firstElementChild) {
+        drawerTr.firstElementChild.innerHTML = renderChunkDrawerHtml(dl);
+      }
     }
   }
 
@@ -153,6 +169,7 @@ export function buildRow(dl: any, index = 0): HTMLTableRowElement {
   const tr = document.createElement('tr');
   tr.dataset.id = dl.id;
   tr.dataset.state = dl.state;
+  tr.className = `dl-row-main ${state.expandedChunkIds.has(dl.id) ? 'has-drawer-open' : ''}`;
   tr.style.setProperty('--stagger', String(Math.min(index, 20)));
 
   const ext = getExtension(dl.filename);
@@ -202,6 +219,7 @@ export function buildRow(dl: any, index = 0): HTMLTableRowElement {
     speed: tr.querySelector('.speed-cell'),
     eta: tr.querySelector('.col-eta'),
     statusCol: tr.querySelector('.col-status'),
+    actionsWrap: tr.querySelector('.row-actions'),
   });
 
   return tr;
@@ -297,7 +315,15 @@ export function renderDownloadsTable(): void {
   const frag = document.createDocumentFragment();
   let i = 0;
   for (const dl of pageSlice) {
-    frag.appendChild(buildRow(dl, i++));
+    const row = buildRow(dl, i++);
+    frag.appendChild(row);
+    if (state.expandedChunkIds.has(dl.id)) {
+      const drawerTr = document.createElement('tr');
+      drawerTr.className = 'chunk-drawer-tr';
+      drawerTr.dataset.forId = dl.id;
+      drawerTr.innerHTML = `<td colspan="8">${renderChunkDrawerHtml(dl)}</td>`;
+      frag.appendChild(drawerTr);
+    }
   }
   tbody.appendChild(frag);
 
@@ -312,11 +338,39 @@ export function renderDownloadsTable(): void {
   updateBadges();
 }
 
+export function toggleChunkDrawer(id: string, tr?: HTMLTableRowElement): void {
+  const tbody = document.getElementById('dl-tbody');
+  if (!tbody) return;
+
+  const targetTr = tr || (tbody.querySelector(`tr[data-id="${id}"]`) as HTMLTableRowElement | null);
+  if (!targetTr) return;
+
+  const existingDrawer = tbody.querySelector(`tr.chunk-drawer-tr[data-for-id="${id}"]`);
+
+  if (existingDrawer) {
+    existingDrawer.remove();
+    state.expandedChunkIds.delete(id);
+    targetTr.classList.remove('has-drawer-open');
+  } else {
+    const dl = state.downloads[id];
+    if (!dl) return;
+
+    state.expandedChunkIds.add(id);
+    targetTr.classList.add('has-drawer-open');
+
+    const drawerTr = document.createElement('tr');
+    drawerTr.className = 'chunk-drawer-tr';
+    drawerTr.dataset.forId = id;
+    drawerTr.innerHTML = `<td colspan="8">${renderChunkDrawerHtml(dl)}</td>`;
+    targetTr.after(drawerTr);
+  }
+}
+
 export async function act(type: string, id: string): Promise<void> {
-  await sendMsg({ type, id });
   if (type === MSG.DELETE_DOWNLOAD) {
     delete state.downloads[id];
     state.selected.delete(id);
+    state.expandedChunkIds.delete(id);
     updateSelectAllCheckbox();
     updateBulkBar();
     updateSidebarStats();
@@ -335,27 +389,33 @@ export async function act(type: string, id: string): Promise<void> {
     updateSidebarStats();
     updateBadges();
   } else if (type === MSG.PAUSE_DOWNLOAD) {
-    if (state.downloads[id]) state.downloads[id].state = DOWNLOAD_STATE.PAUSED;
+    if (state.downloads[id]) {
+      state.downloads[id].state = DOWNLOAD_STATE.PAUSED;
+      state.downloads[id].speed = 0;
+    }
     updateTableRowState(id);
     updateSidebarStats();
     updateBadges();
   } else if (type === MSG.RESUME_DOWNLOAD) {
-    if (state.downloads[id]) state.downloads[id].state = DOWNLOAD_STATE.DOWNLOADING;
+    if (state.downloads[id]) state.downloads[id].state = DOWNLOAD_STATE.CONNECTING;
     updateTableRowState(id);
     updateSidebarStats();
     updateBadges();
   } else if (type === MSG.RETRY_DOWNLOAD) {
     if (state.downloads[id]) {
-      state.downloads[id].state = DOWNLOAD_STATE.QUEUED;
+      state.downloads[id].state = DOWNLOAD_STATE.CONNECTING;
+      state.downloads[id].status = DOWNLOAD_STATE.CONNECTING;
       state.downloads[id].percent = 0;
       state.downloads[id].received = 0;
       state.downloads[id].speed = 0;
       state.downloads[id].error = null;
+      state.downloads[id].errorMessage = null;
     }
     updateTableRowState(id);
     updateSidebarStats();
     updateBadges();
   }
+  await sendMsg({ type, id });
 }
 
 export function bindTableDelegation(): void {
@@ -364,18 +424,37 @@ export function bindTableDelegation(): void {
   (tbody as any).dataset.delegated = 'true';
 
   tbody.addEventListener('click', async (e) => {
-    const btn = (e.target as HTMLElement).closest('.row-btn') as HTMLElement | null;
-    if (!btn) return;
-    const actType = btn.dataset.act;
-    const id = btn.dataset.id;
+    const target = e.target as HTMLElement;
+
+    // 1. Action button click
+    const btn = target.closest('.row-btn') as HTMLElement | null;
+    if (btn) {
+      const actType = btn.dataset.act;
+      const id = btn.dataset.id;
+      if (!id) return;
+
+      if (actType === 'open')   await act(MSG.SHOW_IN_FOLDER,  id);
+      if (actType === 'pause')  await act(MSG.PAUSE_DOWNLOAD,  id);
+      if (actType === 'resume') await act(MSG.RESUME_DOWNLOAD, id);
+      if (actType === 'retry')  await act(MSG.RETRY_DOWNLOAD,  id);
+      if (actType === 'cancel') await act(MSG.CANCEL_DOWNLOAD, id);
+      if (actType === 'delete') await act(MSG.DELETE_DOWNLOAD, id);
+      return;
+    }
+
+    // 2. Ignore clicks on checkbox, links, or inside drawer interactive areas
+    if (target.closest('.row-check') || target.closest('a') || target.closest('.chunk-card')) {
+      return;
+    }
+
+    // 3. Row click: Toggle parallel chunks breakdown drawer!
+    const tr = target.closest('tr') as HTMLTableRowElement | null;
+    if (!tr || tr.classList.contains('chunk-drawer-tr')) return;
+
+    const id = tr.dataset.id;
     if (!id) return;
 
-    if (actType === 'open')   await act(MSG.SHOW_IN_FOLDER,  id);
-    if (actType === 'pause')  await act(MSG.PAUSE_DOWNLOAD,  id);
-    if (actType === 'resume') await act(MSG.RESUME_DOWNLOAD, id);
-    if (actType === 'retry')  await act(MSG.RETRY_DOWNLOAD,  id);
-    if (actType === 'cancel') await act(MSG.CANCEL_DOWNLOAD, id);
-    if (actType === 'delete') await act(MSG.DELETE_DOWNLOAD, id);
+    toggleChunkDrawer(id, tr);
   });
 
   tbody.addEventListener('change', (e) => {

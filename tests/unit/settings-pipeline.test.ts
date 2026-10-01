@@ -109,4 +109,24 @@ describe('Settings Pipeline & Logic Enforcement', () => {
     queue.setMaxConcurrent(3);
     expect(dequeued).toEqual(['dl_1', 'dl_2', 'dl_3', 'dl_4']);
   });
+
+  test('updateBadge accurately sets badge number for active items and clears on empty/delete', async () => {
+    const { updateBadge } = await import('../../src/background/services/badge-manager.ts');
+    const setBadgeText = vi.fn();
+    const setBadgeBackgroundColor = vi.fn();
+
+    (globalThis as any).chrome = {
+      action: { setBadgeText, setBadgeBackgroundColor },
+    };
+
+    updateBadge([
+      { id: 'dl_active', status: DOWNLOAD_STATE.DOWNLOADING } as any,
+    ]);
+    expect(setBadgeText).toHaveBeenCalledWith({ text: '1' });
+    expect(setBadgeBackgroundColor).toHaveBeenCalledWith({ color: '#219ebc' });
+
+    // When the download is deleted or removed
+    updateBadge([]);
+    expect(setBadgeText).toHaveBeenCalledWith({ text: '' });
+  });
 });

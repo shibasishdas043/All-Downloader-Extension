@@ -11,6 +11,7 @@ export interface CachedRowRefs {
   speed: HTMLElement | null;
   eta: HTMLElement | null;
   statusCol: HTMLElement | null;
+  actionsWrap?: HTMLElement | null;
 }
 
 export interface DashboardState {
@@ -35,6 +36,7 @@ export interface DashboardState {
   pendingProgressIds: Set<string>;
   rafScheduled: boolean;
   rowCache: Map<string, CachedRowRefs>;
+  expandedChunkIds: Set<string>;
 }
 
 export const state: DashboardState = {
@@ -59,4 +61,5 @@ export const state: DashboardState = {
   pendingProgressIds: new Set<string>(),
   rafScheduled: false,
   rowCache: new Map<string, CachedRowRefs>(),
+  expandedChunkIds: new Set<string>(),
 };

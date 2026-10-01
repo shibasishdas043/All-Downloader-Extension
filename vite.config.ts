@@ -35,6 +35,12 @@ export default defineConfig({
             if (assetInfo.name.includes('popup')) return 'src/popup/popup.css';
             if (assetInfo.name.includes('dashboard')) return 'src/dashboard/dashboard.css';
           }
+          if (assetInfo.name && assetInfo.name.endsWith('.ttf')) {
+            return 'src/assets/fonts/[name].[ext]';
+          }
+          if (assetInfo.name && assetInfo.name.endsWith('.png')) {
+            return 'src/assets/icons/[name].[ext]';
+          }
           return 'src/assets/[name].[ext]';
         },
       },
@@ -46,7 +52,17 @@ export default defineConfig({
       closeBundle() {
         const root = import.meta.dirname;
         const dist = resolve(root, 'dist');
-        const zipFile = resolve(root, 'all-downloader.zip');
+        
+        let version = '1.0.0';
+        try {
+          const pkg = JSON.parse(fs.readFileSync(resolve(root, 'package.json'), 'utf-8'));
+          if (pkg.version) version = pkg.version;
+        } catch {
+          /* fallback */
+        }
+
+        const versionedZipFile = resolve(root, `all-downloader-v${version}.zip`);
+        const legacyZipFile = resolve(root, 'all-downloader.zip');
 
         // 1. Copy manifest.json
         if (fs.existsSync('manifest.json')) {
@@ -63,16 +79,39 @@ export default defineConfig({
           }
         }
 
+        // 2b. Copy font assets
+        const fontsDir = resolve(root, 'src/assets/fonts');
+        const distFontsDir = resolve(dist, 'src/assets/fonts');
+        if (fs.existsSync(fontsDir)) {
+          fs.mkdirSync(distFontsDir, { recursive: true });
+          for (const file of fs.readdirSync(fontsDir)) {
+            fs.copyFileSync(resolve(fontsDir, file), resolve(distFontsDir, file));
+          }
+        }
+
+        // 2c. Clean up any loose duplicate files directly under dist/src/assets
+        const distAssets = resolve(dist, 'src/assets');
+        if (fs.existsSync(distAssets)) {
+          for (const item of fs.readdirSync(distAssets)) {
+            const itemPath = resolve(distAssets, item);
+            if (fs.statSync(itemPath).isFile()) {
+              fs.unlinkSync(itemPath);
+            }
+          }
+        }
+
         // 3. Copy _locales if existing
         if (fs.existsSync('_locales')) {
           fs.cpSync('_locales', resolve(dist, '_locales'), { recursive: true });
         }
 
-        // 4. Generate all-downloader.zip
-        if (fs.existsSync(zipFile)) fs.rmSync(zipFile);
+        // 4. Generate versioned distribution zip (and copy to legacy name)
+        if (fs.existsSync(versionedZipFile)) fs.rmSync(versionedZipFile);
+        if (fs.existsSync(legacyZipFile)) fs.rmSync(legacyZipFile);
+
         try {
           const distNorm = dist.replace(/\\/g, '/');
-          const zipNorm = zipFile.replace(/\\/g, '/');
+          const zipNorm = versionedZipFile.replace(/\\/g, '/');
           try {
             execSync(`zip -r "${zipNorm}" .`, { cwd: dist, stdio: 'pipe' });
           } catch {
@@ -80,6 +119,10 @@ export default defineConfig({
               `powershell -Command "Compress-Archive -Path '${distNorm}\\*' -DestinationPath '${zipNorm}' -Force"`,
               { stdio: 'pipe' }
             );
+          }
+          if (fs.existsSync(versionedZipFile)) {
+            fs.copyFileSync(versionedZipFile, legacyZipFile);
+            console.log(`[Vite Packager] Generated CWS distribution archive: all-downloader-v${version}.zip`);
           }
         } catch (e) {
           console.warn('[Vite Packager] Could not create zip archive:', e);

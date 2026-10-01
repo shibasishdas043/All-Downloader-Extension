@@ -12,8 +12,30 @@ export interface PendingChromeDownload {
 }
 
 let creatingOffscreenPromise: Promise<void> | null = null;
+let activeAssemblies = 0;
+let offscreenCooldownTimer: any = null;
+
+export function retainOffscreenAssembly(): void {
+  activeAssemblies++;
+  if (offscreenCooldownTimer) {
+    clearTimeout(offscreenCooldownTimer);
+    offscreenCooldownTimer = null;
+  }
+}
+
+export function releaseOffscreenAssembly(): void {
+  activeAssemblies = Math.max(0, activeAssemblies - 1);
+}
+
+export function getActiveAssembliesCount(): number {
+  return activeAssemblies;
+}
 
 export async function ensureOffscreenDocument(): Promise<void> {
+  if (offscreenCooldownTimer) {
+    clearTimeout(offscreenCooldownTimer);
+    offscreenCooldownTimer = null;
+  }
   const path = 'src/offscreen/offscreen.html';
   const offscreenUrl = chrome.runtime.getURL(path);
 
@@ -53,19 +75,32 @@ export async function ensureOffscreenDocument(): Promise<void> {
 }
 
 export async function closeOffscreenDocumentIfIdle(hasPending: boolean): Promise<void> {
-  if (hasPending) return;
-  try {
-    if ('getContexts' in chrome.runtime) {
-      const contexts = await (chrome.runtime as any).getContexts({
-        contextTypes: ['OFFSCREEN_DOCUMENT'],
-      });
-      if (contexts && contexts.length > 0) {
-        await chrome.offscreen.closeDocument();
-      }
+  if (hasPending || activeAssemblies > 0) {
+    if (offscreenCooldownTimer) {
+      clearTimeout(offscreenCooldownTimer);
+      offscreenCooldownTimer = null;
     }
-  } catch {
-    // Ignore if already closed
+    return;
   }
+
+  if (offscreenCooldownTimer) return;
+
+  offscreenCooldownTimer = setTimeout(async () => {
+    offscreenCooldownTimer = null;
+    if (activeAssemblies > 0) return;
+    try {
+      if ('getContexts' in chrome.runtime) {
+        const contexts = await (chrome.runtime as any).getContexts({
+          contextTypes: ['OFFSCREEN_DOCUMENT'],
+        });
+        if (contexts && contexts.length > 0) {
+          await chrome.offscreen.closeDocument();
+        }
+      }
+    } catch {
+      // Ignore if already closed
+    }
+  }, 10_000);
 }
 
 export function revokeBlobUrl(blobUrl: string): void {

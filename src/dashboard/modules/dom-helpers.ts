@@ -8,7 +8,8 @@ export function escHtml(str: any): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 export function updateSliderFill(slider: HTMLInputElement | null, valSpan: HTMLElement | null): void {

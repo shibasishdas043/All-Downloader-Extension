@@ -1,32 +1,47 @@
 // ============================================================
 //  All-Downloader — Popup Event Listeners & SW Message Handlers
 // ============================================================
-import { MSG, DOWNLOAD_STATE } from '../../shared/constants.js';
-import { $list, $modalAdd, $urlInput, showModal, hideModal } from './dom.js';
-import { downloads, setDownload } from './state.js';
+import { MSG, DOWNLOAD_STATE, UI } from '../../shared/constants.js';
+import { $list, $empty, $modalAdd, $urlInput, showModal, hideModal } from './dom.js';
+import { downloads, setDownload, getAllDownloads } from './state.js';
 import {
   pauseDl, resumeDl, cancelDl, deleteDl,
   showInFolder, retryDl, pauseAll,
   startManualDownload, openDashboard
 } from './actions.js';
-import { renderAll, updateItem, updateStatusBar } from './renderer.js';
+import { renderAll, updateItem, updateStatusBar, togglePopupChunkDrawer } from './renderer.js';
 
 export function bindEvents(): void {
   $list.addEventListener('click', (e: MouseEvent) => {
     const target = e.target as HTMLElement | null;
-    const btn = target?.closest('.ctrl-btn');
-    if (!btn) return;
-    const item = btn.closest('.dl-item') as HTMLElement | null;
-    if (!item) return;
-    const id = item.dataset.id;
-    if (!id) return;
 
-    if (btn.classList.contains('ctrl-pause'))  pauseDl(id);
-    if (btn.classList.contains('ctrl-resume')) resumeDl(id);
-    if (btn.classList.contains('ctrl-cancel')) cancelDl(id);
-    if (btn.classList.contains('ctrl-remove')) deleteDl(id);
-    if (btn.classList.contains('ctrl-folder')) showInFolder(id);
-    if (btn.classList.contains('ctrl-retry'))  retryDl(id);
+    // 1. Control button click
+    const btn = target?.closest('.ctrl-btn');
+    if (btn) {
+      const item = btn.closest('.dl-item') as HTMLElement | null;
+      if (!item) return;
+      const id = item.dataset.id;
+      if (!id) return;
+
+      if (btn.classList.contains('ctrl-pause'))  pauseDl(id);
+      if (btn.classList.contains('ctrl-resume')) resumeDl(id);
+      if (btn.classList.contains('ctrl-cancel')) cancelDl(id);
+      if (btn.classList.contains('ctrl-remove')) deleteDl(id);
+      if (btn.classList.contains('ctrl-folder')) showInFolder(id);
+      if (btn.classList.contains('ctrl-retry'))  retryDl(id);
+      return;
+    }
+
+    // 2. Ignore clicks inside the drawer interactive area or on links
+    if (target?.closest('.popup-chip') || target?.closest('a')) {
+      return;
+    }
+
+    // 3. Item click: toggle parallel chunks drawer!
+    const item = target?.closest('.dl-item') as HTMLElement | null;
+    if (item && item.dataset.id) {
+      togglePopupChunkDrawer(item.dataset.id);
+    }
   });
 
   document.getElementById('btn-dashboard')?.addEventListener('click', (e) => {
@@ -58,6 +73,22 @@ export function handleSWMessage(msg: any): void {
       renderAll();
       break;
 
+    case MSG.DOWNLOAD_RESUMED:
+      if (downloads[msg.id]) {
+        if (msg.download) {
+          Object.assign(downloads[msg.id], msg.download);
+        }
+        if (downloads[msg.id].state !== DOWNLOAD_STATE.QUEUED) {
+          downloads[msg.id].state = DOWNLOAD_STATE.CONNECTING;
+          downloads[msg.id].status = DOWNLOAD_STATE.CONNECTING;
+        }
+        downloads[msg.id].error = null;
+        downloads[msg.id].errorMessage = null;
+        updateItem(msg.id);
+        updateStatusBar();
+      }
+      break;
+
     case MSG.DOWNLOAD_PROGRESS:
       if (downloads[msg.id]) {
         const curState = downloads[msg.id].state || downloads[msg.id].status;
@@ -78,6 +109,8 @@ export function handleSWMessage(msg: any): void {
           progress:      msg.percent,
           speed:         msg.speed,
           eta:           msg.eta,
+          ...(msg.segments ? { segments: msg.segments } : {}),
+          ...(msg.totalChunks ? { totalChunks: msg.totalChunks } : {}),
         });
         updateItem(msg.id);
         updateStatusBar();
@@ -123,6 +156,38 @@ export function handleSWMessage(msg: any): void {
         updateItem(msg.id);
         updateStatusBar();
       }
+      break;
+
+    case MSG.DOWNLOAD_DELETED:
+      if (downloads[msg.id]) {
+        delete downloads[msg.id];
+        $list.querySelector(`.dl-item[data-id="${msg.id}"]`)?.remove();
+        const remaining = getAllDownloads()
+          .sort((a: any, b: any) => b.createdAt - a.createdAt)
+          .slice(0, UI.POPUP_MAX_VISIBLE);
+        if ($empty) $empty.style.display = remaining.length === 0 ? 'flex' : 'none';
+        updateStatusBar();
+      }
+      break;
+
+    case MSG.CLEAR_HISTORY:
+      for (const id of Object.keys(downloads)) {
+        const dl = downloads[id];
+        const st = dl.status || dl.state;
+        if (![
+          DOWNLOAD_STATE.DOWNLOADING,
+          DOWNLOAD_STATE.QUEUED,
+          DOWNLOAD_STATE.CONNECTING,
+          DOWNLOAD_STATE.PAUSED,
+          DOWNLOAD_STATE.MERGING,
+          DOWNLOAD_STATE.VERIFYING
+        ].includes(st as any)) {
+          delete downloads[id];
+          $list.querySelector(`.dl-item[data-id="${id}"]`)?.remove();
+        }
+      }
+      renderAll();
+      updateStatusBar();
       break;
   }
 }

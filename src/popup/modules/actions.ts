@@ -55,8 +55,8 @@ export async function deleteDl(id: string): Promise<void> {
 
 export async function retryDl(id: string): Promise<void> {
   if (downloads[id]) {
-    downloads[id].state = DOWNLOAD_STATE.QUEUED;
-    downloads[id].status = DOWNLOAD_STATE.QUEUED;
+    downloads[id].state = DOWNLOAD_STATE.CONNECTING;
+    downloads[id].status = DOWNLOAD_STATE.CONNECTING;
     downloads[id].error = null;
     downloads[id].errorMessage = null;
     downloads[id].percent = 0;

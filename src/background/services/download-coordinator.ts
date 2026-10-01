@@ -18,6 +18,7 @@ import { updateBadge, broadcastMessage, showNotification } from './badge-manager
 import {
   ensureOffscreenDocument, closeOffscreenDocumentIfIdle,
   cleanupPendingChromeDownload, revokeBlobUrl,
+  retainOffscreenAssembly, releaseOffscreenAssembly,
   type PendingChromeDownload
 } from './offscreen-manager.js';
 import { showDownloadStartedToast } from './toast-manager.js';
@@ -178,13 +179,19 @@ export class DownloadCoordinator {
     }
 
     await this.updateState(downloadId, DOWNLOAD_STATE.CONNECTING as DownloadState, { startedAt: Date.now() });
+    broadcastMessage({
+      type: MSG.DOWNLOAD_PROGRESS,
+      id: downloadId,
+      state: DOWNLOAD_STATE.CONNECTING,
+      speed: 0,
+    });
 
     await startDownload(
       dl,
       this.settings,
-      async (id, received, total, speedSnap) => {
+      async (id, received, total, speedSnap, segments) => {
         const percent = calcPercent(received, total);
-        const update = {
+        const update: Record<string, any> = {
           state: DOWNLOAD_STATE.DOWNLOADING,
           status: DOWNLOAD_STATE.DOWNLOADING as DownloadState,
           received,
@@ -196,6 +203,12 @@ export class DownloadCoordinator {
           speed: speedSnap.bytesPerSec,
           eta: speedSnap.etaSec,
         };
+        if (segments && segments.length > 0) {
+          update.segments = segments;
+          update.totalChunks = segments.length;
+          dl.segments = segments;
+          dl.totalChunks = segments.length;
+        }
         await this.updateState(id, DOWNLOAD_STATE.DOWNLOADING as DownloadState, update);
         broadcastMessage({ type: MSG.DOWNLOAD_PROGRESS, id, ...update });
       },
@@ -236,17 +249,23 @@ export class DownloadCoordinator {
             : undefined;
           const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
 
-          // 1. Ensure Offscreen Document is active
-          await ensureOffscreenDocument();
+          // 1. Ensure Offscreen Document is active and retain assembly slot
+          retainOffscreenAssembly();
+          let response: any;
+          try {
+            await ensureOffscreenDocument();
 
-          // 2. Request Offscreen Document to create Blob URL from IndexedDB chunks (and compute hash if requested)
-          const response = await chrome.runtime.sendMessage({
-            type: MSG.OFFSCREEN_CREATE_BLOB_URL,
-            downloadId: id,
-            chunkCount: result.chunkCount,
-            mimeType: result.mimeType,
-            verifyHash: shouldVerify,
-          });
+            // 2. Request Offscreen Document to create Blob URL from IndexedDB chunks (and compute hash if requested)
+            response = await chrome.runtime.sendMessage({
+              type: MSG.OFFSCREEN_CREATE_BLOB_URL,
+              downloadId: id,
+              chunkCount: result.chunkCount,
+              mimeType: result.mimeType,
+              verifyHash: shouldVerify,
+            });
+          } finally {
+            releaseOffscreenAssembly();
+          }
 
           if (!response || !response.success || !response.blobUrl) {
             throw new Error(response?.error || 'Failed to assemble download chunks in offscreen document');
@@ -394,15 +413,21 @@ export class DownloadCoordinator {
       const chunkCount = dl.totalChunks || (dl as any).chunkCount || 1;
       const actualSize = dl.filesize || dl.receivedBytes || 0;
 
-      await ensureOffscreenDocument();
+      retainOffscreenAssembly();
+      let response: any;
+      try {
+        await ensureOffscreenDocument();
 
-      const response = await chrome.runtime.sendMessage({
-        type: MSG.OFFSCREEN_CREATE_BLOB_URL,
-        downloadId: id,
-        chunkCount,
-        mimeType: dl.mimeType || 'application/octet-stream',
-        verifyHash: false,
-      });
+        response = await chrome.runtime.sendMessage({
+          type: MSG.OFFSCREEN_CREATE_BLOB_URL,
+          downloadId: id,
+          chunkCount,
+          mimeType: dl.mimeType || 'application/octet-stream',
+          verifyHash: false,
+        });
+      } finally {
+        releaseOffscreenAssembly();
+      }
 
       if (!response || !response.success || !response.blobUrl) {
         throw new Error(response?.error || 'Failed to assemble existing download chunks from storage');
@@ -755,6 +780,7 @@ export class DownloadCoordinator {
       for (const dl of toDelete) {
         this.downloadCache.delete(dl.id);
       }
+      updateBadge(this.downloadCache.values());
 
       const updatedMap = { ...active };
       for (const dl of kept) {

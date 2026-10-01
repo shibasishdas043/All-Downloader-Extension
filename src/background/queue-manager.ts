@@ -3,6 +3,8 @@
 //  Priority queue + concurrency limiter + scheduler
 // ============================================================
 
+import { keepAliveGuard } from './services/keep-alive.js';
+
 export interface QueueManagerOptions {
   maxConcurrent?: number;
   onDequeue?: (downloadId: string) => void;
@@ -57,7 +59,10 @@ export class QueueManager {
    * Mark a download as started (running).
    */
   markRunning(downloadId: string): void {
-    this.running.add(downloadId);
+    if (!this.running.has(downloadId)) {
+      this.running.add(downloadId);
+      keepAliveGuard.retain();
+    }
     const idx = this.queue.indexOf(downloadId);
     if (idx !== -1) this.queue.splice(idx, 1);
   }
@@ -67,7 +72,10 @@ export class QueueManager {
    * Frees a slot and triggers next in queue.
    */
   markDone(downloadId: string): void {
-    this.running.delete(downloadId);
+    if (this.running.has(downloadId)) {
+      this.running.delete(downloadId);
+      keepAliveGuard.release();
+    }
     this._flush();
   }
 
@@ -75,10 +83,14 @@ export class QueueManager {
    * Remove from queue (cancel queued-but-not-started).
    */
   remove(downloadId: string): void {
-    this.running.delete(downloadId);
+    if (this.running.has(downloadId)) {
+      this.running.delete(downloadId);
+      keepAliveGuard.release();
+    }
     const idx = this.queue.indexOf(downloadId);
     if (idx !== -1) this.queue.splice(idx, 1);
     this._cancelAlarm(downloadId);
+    this._flush();
   }
 
   /**
@@ -179,7 +191,10 @@ export class QueueManager {
     while (this.queue.length > 0 && this.running.size < this.maxConcurrent) {
       const next = this.queue.shift();
       if (!next) break;
-      this.running.add(next);
+      if (!this.running.has(next)) {
+        this.running.add(next);
+        keepAliveGuard.retain();
+      }
       if (typeof this.onDequeue === 'function') {
         this.onDequeue(next);
       }

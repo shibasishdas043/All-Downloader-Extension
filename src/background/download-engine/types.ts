@@ -17,7 +17,7 @@ export interface ActiveRegistryEntry {
   segments: SegmentDescriptor[];
 }
 
-export type ProgressCallback = (id: string, received: number, total: number, speedSnap: SpeedSnapshot) => void;
+export type ProgressCallback = (id: string, received: number, total: number, speedSnap: SpeedSnapshot, segments?: SegmentDescriptor[]) => void;
 export type CompleteCallback = (id: string, result: DownloadResult, filename: string) => Promise<void> | void;
 export type ErrorCallback = (id: string, errorMessage: string) => void;
 export type MetaCallback = (meta: {
@@ -63,7 +63,7 @@ export interface ChunkedDownloadParams {
   controller: AbortController;
   throttle: (bytes: number, signal?: AbortSignal) => Promise<void>;
   progress: ProgressState;
-  emit: () => void;
+  emit: (segs?: SegmentDescriptor[]) => void;
 }
 
 export interface SegmentFetchParams {

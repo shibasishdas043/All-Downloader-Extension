@@ -74,21 +74,49 @@ export function handleSWMessage(msg: any): void {
       updateBadges();
       break;
 
+    case MSG.DOWNLOAD_RESUMED:
+      if (state.downloads[msg.id]) {
+        if (msg.download) Object.assign(state.downloads[msg.id], msg.download);
+        if (state.downloads[msg.id].state !== DOWNLOAD_STATE.QUEUED) {
+          state.downloads[msg.id].state = DOWNLOAD_STATE.CONNECTING;
+          state.downloads[msg.id].status = DOWNLOAD_STATE.CONNECTING;
+        }
+        state.downloads[msg.id].error = null;
+        state.downloads[msg.id].errorMessage = null;
+        updateTableRowState(msg.id);
+        updateSidebarStats();
+        updateBadges();
+      }
+      break;
+
     case MSG.DOWNLOAD_PROGRESS:
       if (!state.downloads[msg.id]) {
         state.downloads[msg.id] = {
           id: msg.id,
-          state: DOWNLOAD_STATE.DOWNLOADING,
+          state: msg.state || DOWNLOAD_STATE.DOWNLOADING,
+          status: msg.state || DOWNLOAD_STATE.DOWNLOADING,
           received: msg.received, total: msg.total,
           percent: msg.percent, speed: msg.speed, eta: msg.eta,
+          ...(msg.segments ? { segments: msg.segments } : {}),
+          ...(msg.totalChunks ? { totalChunks: msg.totalChunks } : {}),
         };
         if (state.currentView === 'downloads') renderDownloadsTable();
       } else {
+        const prevState = state.downloads[msg.id].state;
+        const nextState = msg.state || DOWNLOAD_STATE.DOWNLOADING;
         Object.assign(state.downloads[msg.id], {
-          state: DOWNLOAD_STATE.DOWNLOADING,
+          state: nextState,
+          status: nextState,
           received: msg.received, total: msg.total,
           percent: msg.percent, speed: msg.speed, eta: msg.eta,
+          ...(msg.segments ? { segments: msg.segments } : {}),
+          ...(msg.totalChunks ? { totalChunks: msg.totalChunks } : {}),
         });
+        if (prevState !== nextState && state.currentView === 'downloads') {
+          updateTableRowState(msg.id);
+          updateSidebarStats();
+          updateBadges();
+        }
         queueProgressUpdate(msg.id);
       }
       break;
@@ -134,6 +162,45 @@ export function handleSWMessage(msg: any): void {
         if (state.currentView === 'queue') renderQueue();
         if (state.currentView === 'stats') renderStats();
       }
+      break;
+
+    case MSG.DOWNLOAD_DELETED:
+      if (state.downloads[msg.id]) {
+        delete state.downloads[msg.id];
+        state.selected.delete(msg.id);
+        state.expandedChunkIds.delete(msg.id);
+        if (state.currentView === 'downloads') renderDownloadsTable();
+        if (state.currentView === 'history') renderHistory();
+        if (state.currentView === 'queue') renderQueue();
+        if (state.currentView === 'stats') renderStats();
+        updateSidebarStats();
+        updateBadges();
+      }
+      break;
+
+    case MSG.CLEAR_HISTORY:
+      for (const id of Object.keys(state.downloads)) {
+        const dl = state.downloads[id];
+        const st = dl.status || (dl as any).state;
+        if (![
+          DOWNLOAD_STATE.DOWNLOADING,
+          DOWNLOAD_STATE.QUEUED,
+          DOWNLOAD_STATE.CONNECTING,
+          DOWNLOAD_STATE.PAUSED,
+          DOWNLOAD_STATE.MERGING,
+          DOWNLOAD_STATE.VERIFYING
+        ].includes(st as any)) {
+          delete state.downloads[id];
+          state.selected.delete(id);
+          state.expandedChunkIds.delete(id);
+        }
+      }
+      if (state.currentView === 'downloads') renderDownloadsTable();
+      if (state.currentView === 'history') renderHistory();
+      if (state.currentView === 'queue') renderQueue();
+      if (state.currentView === 'stats') renderStats();
+      updateSidebarStats();
+      updateBadges();
       break;
   }
 }

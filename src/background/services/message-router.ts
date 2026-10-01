@@ -9,7 +9,7 @@ import {
 import { pauseDownload, cancelDownload } from '../download-engine.js';
 import type { DownloadState, ExtensionSettings } from '../../shared/types.js';
 import type { DownloadCoordinator } from './download-coordinator.js';
-import { openDashboard, broadcastMessage } from './badge-manager.js';
+import { openDashboard, broadcastMessage, updateBadge } from './badge-manager.js';
 
 export async function handleMessage(
   msg: any,
@@ -38,6 +38,7 @@ export async function handleMessage(
       if (!dl) return { ok: false };
       coordinator.queue.remove(msg.id);
       coordinator.queue.markRunning(msg.id);
+      broadcastMessage({ type: MSG.DOWNLOAD_RESUMED, id: msg.id });
       await coordinator.executeDownload(msg.id);
       return { ok: true, queueOrder: coordinator.queue.getStatus().queue };
     }
@@ -60,7 +61,7 @@ export async function handleMessage(
     case MSG.PAUSE_DOWNLOAD: {
       const dl = await getDownload(msg.id);
       const state = dl?.status || (dl as any)?.state;
-      if (!dl || state !== DOWNLOAD_STATE.DOWNLOADING) return { ok: false };
+      if (!dl || (state !== DOWNLOAD_STATE.DOWNLOADING && state !== DOWNLOAD_STATE.CONNECTING)) return { ok: false };
       pauseDownload(msg.id);
       await coordinator.updateState(msg.id, DOWNLOAD_STATE.PAUSED as DownloadState);
       coordinator.queue.markDone(msg.id);
@@ -72,8 +73,10 @@ export async function handleMessage(
       const dl = await getDownload(msg.id);
       const state = dl?.status || (dl as any)?.state;
       if (!dl || (state !== DOWNLOAD_STATE.PAUSED && state !== DOWNLOAD_STATE.QUEUED)) return { ok: false };
-      await coordinator.updateState(msg.id, DOWNLOAD_STATE.QUEUED as DownloadState);
+      const nextState = coordinator.queue.hasFreeSlot() ? DOWNLOAD_STATE.CONNECTING : DOWNLOAD_STATE.QUEUED;
+      const updated = await coordinator.updateState(msg.id, nextState as DownloadState);
       coordinator.queue.enqueue(msg.id);
+      broadcastMessage({ type: MSG.DOWNLOAD_RESUMED, id: msg.id, download: updated });
       return { ok: true };
     }
 
@@ -89,15 +92,19 @@ export async function handleMessage(
     case MSG.RETRY_DOWNLOAD: {
       const dl = await getDownload(msg.id);
       if (!dl) return { ok: false };
-      await coordinator.updateState(msg.id, DOWNLOAD_STATE.QUEUED as DownloadState, {
+      const nextState = coordinator.queue.hasFreeSlot() ? DOWNLOAD_STATE.CONNECTING : DOWNLOAD_STATE.QUEUED;
+      const updated = await coordinator.updateState(msg.id, nextState as DownloadState, {
         errorMessage: null,
         error: null,
         receivedBytes: 0,
         received: 0,
         progress: 0,
         percent: 0,
+        speed: 0,
+        eta: null,
       } as any);
       coordinator.queue.enqueue(msg.id);
+      broadcastMessage({ type: MSG.DOWNLOAD_RESUMED, id: msg.id, download: updated });
       return { ok: true };
     }
 
@@ -107,6 +114,8 @@ export async function handleMessage(
       await deleteDownload(msg.id);
       coordinator.queue.remove(msg.id);
       coordinator.downloadCache.delete(msg.id);
+      updateBadge(coordinator.downloadCache.values());
+      broadcastMessage({ type: MSG.DOWNLOAD_DELETED, id: msg.id });
       return { ok: true };
     }
 
@@ -124,6 +133,8 @@ export async function handleMessage(
     case MSG.CLEAR_HISTORY: {
       await clearHistory();
       coordinator.clearFinishedDownloads();
+      updateBadge(coordinator.downloadCache.values());
+      broadcastMessage({ type: MSG.CLEAR_HISTORY });
       return { ok: true };
     }
 

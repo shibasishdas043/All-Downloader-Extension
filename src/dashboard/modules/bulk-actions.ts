@@ -1,7 +1,7 @@
 // ============================================================
 //  All-Downloader — Dashboard Bulk Operations Controller
 // ============================================================
-import { MSG } from '../../shared/constants.js';
+import { MSG, DOWNLOAD_STATE } from '../../shared/constants.js';
 import { sendMsg } from './api.js';
 import { state } from './state.js';
 import { getFilteredDownloads } from './filters.js';
@@ -46,8 +46,19 @@ export async function bulkAction(msgType: string, onDone: () => void): Promise<v
   if (state.selected.size === 0) return;
   const ids = [...state.selected];
   for (const id of ids) {
+    if (msgType === MSG.DELETE_DOWNLOAD) {
+      delete state.downloads[id];
+    } else if (msgType === MSG.CANCEL_DOWNLOAD && state.downloads[id]) {
+      state.downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+      state.downloads[id].speed = 0;
+      state.downloads[id].eta = 0;
+    } else if (msgType === MSG.PAUSE_DOWNLOAD && state.downloads[id]) {
+      state.downloads[id].state = DOWNLOAD_STATE.PAUSED;
+      state.downloads[id].speed = 0;
+    } else if (msgType === MSG.RESUME_DOWNLOAD && state.downloads[id]) {
+      state.downloads[id].state = DOWNLOAD_STATE.CONNECTING;
+    }
     await sendMsg({ type: msgType, id });
-    if (msgType === MSG.DELETE_DOWNLOAD) delete state.downloads[id];
   }
   if (msgType === MSG.DELETE_DOWNLOAD || msgType === MSG.CANCEL_DOWNLOAD) {
     state.selected.clear();

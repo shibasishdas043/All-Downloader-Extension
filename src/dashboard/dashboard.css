@@ -5,6 +5,15 @@
    Rules: NO borders, NO outlines, NO glow effects, Flat colors only
 ============================================================ */
 
+/* ── Local Typography: Space Grotesk (Variable) ───────────────── */
+@font-face {
+  font-family: 'Space Grotesk';
+  src: url('../assets/fonts/SpaceGrotesk.ttf') format('truetype');
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ── Tokens: High-Contrast Pure-Flat Architecture (No Borders/Outlines) ── */
 :root {
   --geist-ink:    #0f172a;
@@ -46,7 +55,7 @@
   --transition: 200ms var(--ease-out-expo);
   --transition-slow: 320ms var(--ease-out-expo);
 
-  --font: 'Geist', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --font: 'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
 }
 
@@ -2602,4 +2611,193 @@ input[type="checkbox"] {
   font-family: var(--mono);
   color: var(--text-muted);
 }
+
+/* ════════════════════════════════════════════════════════════════
+   INTERACTIVE PARALLEL CHUNKS BREAKDOWN DRAWER (DASHBOARD)
+   ════════════════════════════════════════════════════════════════ */
+
+.dl-row-main {
+  cursor: pointer;
+}
+
+.dl-row-main.has-drawer-open td {
+  background: #f1f5f9 !important;
+}
+
+/* ── Chunk Drawer Sub-Row ──────────────────────────────────── */
+.chunk-drawer-tr td {
+  padding: 0 !important;
+  background: #f8fafc !important;
+  border-bottom: 2px solid #e2e8f0 !important;
+  animation: chunkDrawerOpen 0.2s var(--ease-out-expo) both;
+}
+
+@keyframes chunkDrawerOpen {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.chunk-drawer-content {
+  padding: 14px 22px 18px;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chunk-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px;
+}
+
+.chunk-title-badge {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: #64748b;
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+
+.chunk-done-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  letter-spacing: 0.2px;
+}
+
+.chunk-done-status.all-done {
+  color: #047857;
+  font-weight: 700;
+}
+
+/* ── Multi-Segment Strip ────────────────────────────────────── */
+.chunk-track-strip {
+  display: flex;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  gap: 2px;
+  padding: 1px;
+}
+
+.chunk-strip-seg {
+  position: relative;
+  background: rgba(15, 23, 42, 0.08);
+  height: 100%;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.chunk-seg-fill {
+  height: 100%;
+  background: #7c98b3;
+  transition: width 0.15s linear;
+}
+
+.chunk-strip-seg.done .chunk-seg-fill {
+  background: #0f172a !important;
+  width: 100% !important;
+}
+
+.chunk-strip-seg.downloading .chunk-seg-fill {
+  background: #7c98b3 !important;
+  box-shadow: none !important;
+}
+
+/* ── Threads Grid ───────────────────────────────────────────── */
+.chunk-threads-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.chunk-card {
+  background: #ffffff;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.05);
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.chunk-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
+}
+
+.chunk-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chunk-card-num {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.chunk-card-pct {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+}
+
+.chunk-card.done .chunk-card-pct {
+  color: #047857;
+}
+
+.chunk-card.downloading .chunk-card-pct {
+  color: #7c98b3;
+}
+
+.chunk-mini-bar {
+  height: 4px;
+  background: #e2e8f0;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+}
+
+.chunk-mini-fill {
+  height: 100%;
+  background: #7c98b3;
+  transition: width 0.15s linear;
+}
+
+.chunk-card.done .chunk-mini-fill {
+  background: #0f172a !important;
+  width: 100% !important;
+}
+
+.chunk-card.downloading .chunk-mini-fill {
+  background: #7c98b3 !important;
+}
+
+.chunk-card-range {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 

@@ -30,6 +30,17 @@ src/**/*.d.ts
 *.zip
 *.crx
 *.xpi
+*.tar.gz
+*.tgz
+
+# ── Test downloads & user artifacts ──────────────────────────
+downloads/
+test-downloads/
+*.iso
+*.img
+*.bin
+*.part
+*.download
 
 # ── Test coverage & reports ──────────────────────────────────
 coverage/
@@ -53,8 +64,14 @@ logs/
 *.p12
 *.pfx
 *.cert
+
+# ── AI Agents & IDE Cache ────────────────────────────────────
 .agents/
 .gemini/
+.cursor/
+.claude/
+.windsurf/
+.antigravity/
 
 # ── OS generated files ───────────────────────────────────────
 # macOS
@@ -82,6 +99,7 @@ $RECYCLE.BIN/
 # VS Code (keep extensions.json for recommended extensions)
 .vscode/*
 !.vscode/extensions.json
+*.code-workspace
 # JetBrains (WebStorm, IntelliJ, Rider)
 .idea/
 *.iml
@@ -112,6 +130,8 @@ $RECYCLE.BIN/
 # ── Temporary / scratch files ────────────────────────────────
 tmp/
 temp/
+scratch/
+out/
 *.tmp
 *.bak
 *.orig

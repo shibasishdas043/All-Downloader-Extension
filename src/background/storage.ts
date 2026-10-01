@@ -69,39 +69,99 @@ function storageSet(data: Record<string, any>): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-//  Downloads CRUD
+//  Downloads CRUD with Atomic Write Mutex & In-Memory Cache
 // ─────────────────────────────────────────────────────────────
+
+let inMemoryDownloads: Record<string, DownloadItem> | null = null;
+let saveDownloadsPromise: Promise<void> = Promise.resolve();
+let pendingSaveTimer: any = null;
+const STORAGE_DEBOUNCE_MS = 250;
 
 /** Load all download records from storage. */
 export async function loadDownloads(): Promise<Record<string, DownloadItem>> {
+  if (inMemoryDownloads) {
+    return { ...inMemoryDownloads };
+  }
   const result = await storageGet([STORAGE_KEY.DOWNLOADS]);
-  return result[STORAGE_KEY.DOWNLOADS] || {};
+  inMemoryDownloads = result[STORAGE_KEY.DOWNLOADS] || {};
+  return { ...inMemoryDownloads };
+}
+
+/** Internal atomic flush to chrome.storage.local */
+async function flushDownloadsToStorage(): Promise<void> {
+  if (!inMemoryDownloads) return;
+  const snapshot = { ...inMemoryDownloads };
+  saveDownloadsPromise = saveDownloadsPromise
+    .then(() => storageSet({ [STORAGE_KEY.DOWNLOADS]: snapshot }))
+    .catch((err) => console.error('[ADL Storage] Error writing downloads to storage:', err));
+  await saveDownloadsPromise;
 }
 
 /** Save the full downloads map to storage. */
 export async function saveDownloads(downloadsMap: Record<string, DownloadItem>): Promise<void> {
-  await storageSet({ [STORAGE_KEY.DOWNLOADS]: downloadsMap });
+  inMemoryDownloads = { ...downloadsMap };
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+  await flushDownloadsToStorage();
 }
 
-/** Insert or update a single download record. */
+/** Insert or update a single download record with atomic synchronization. */
 export async function upsertDownload(download: DownloadItem): Promise<DownloadItem> {
-  const all = await loadDownloads();
-  all[download.id] = download;
-  await saveDownloads(all);
+  if (!inMemoryDownloads) {
+    await loadDownloads();
+  }
+  if (!inMemoryDownloads) {
+    inMemoryDownloads = {};
+  }
+  inMemoryDownloads[download.id] = download;
+
+  // Immediate disk flush for terminal or milestone states
+  const immediateStates = ['completed', 'paused', 'error', 'cancelled', 'merging'];
+  const isImmediate = immediateStates.includes(download.status) || immediateStates.includes((download as any).state);
+
+  if (isImmediate) {
+    if (pendingSaveTimer) {
+      clearTimeout(pendingSaveTimer);
+      pendingSaveTimer = null;
+    }
+    await flushDownloadsToStorage();
+  } else {
+    // Debounce high-frequency progress writes to prevent I/O thrashing and clobbering
+    if (!pendingSaveTimer) {
+      pendingSaveTimer = setTimeout(() => {
+        pendingSaveTimer = null;
+        flushDownloadsToStorage().catch(console.error);
+      }, STORAGE_DEBOUNCE_MS);
+    }
+  }
+
   return download;
 }
 
 /** Get a single download by ID. */
 export async function getDownload(id: string): Promise<DownloadItem | null> {
+  if (inMemoryDownloads && inMemoryDownloads[id]) {
+    return inMemoryDownloads[id];
+  }
   const all = await loadDownloads();
   return all[id] || null;
 }
 
 /** Delete a download record. */
 export async function deleteDownload(id: string): Promise<void> {
-  const all = await loadDownloads();
-  delete all[id];
-  await saveDownloads(all);
+  if (!inMemoryDownloads) {
+    await loadDownloads();
+  }
+  if (inMemoryDownloads) {
+    delete inMemoryDownloads[id];
+  }
+  if (pendingSaveTimer) {
+    clearTimeout(pendingSaveTimer);
+    pendingSaveTimer = null;
+  }
+  await flushDownloadsToStorage();
 }
 
 /** Clear all completed / cancelled download history and reset stats. */
@@ -180,29 +240,53 @@ export async function recordCompletion(bytes: number, durationMs: number): Promi
 }
 
 // ─────────────────────────────────────────────────────────────
-//  IndexedDB — Chunk Cache (for pause/resume byte ranges)
+//  IndexedDB V2 — Persistent Chunk Storage & Secondary Indexing
 // ─────────────────────────────────────────────────────────────
 
 const IDB_NAME    = 'AllDownloaderChunks';
-const IDB_VERSION = 1;
+const IDB_VERSION = 2; // Upgraded for 'by_download' index
 const IDB_STORE   = 'chunks';
+
+let cachedDbPromise: Promise<IDBDatabase | null> | null = null;
 
 function openIDB(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') {
     return Promise.resolve(null);
   }
-  return new Promise((resolve, reject) => {
+  if (cachedDbPromise) {
+    return cachedDbPromise;
+  }
+
+  cachedDbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(IDB_NAME, IDB_VERSION);
     req.onupgradeneeded = (e: IDBVersionChangeEvent) => {
       const db = (e.target as IDBOpenDBRequest).result;
-      db.createObjectStore(IDB_STORE, { keyPath: 'key' });
+      let store: IDBObjectStore;
+      if (!db.objectStoreNames.contains(IDB_STORE)) {
+        store = db.createObjectStore(IDB_STORE, { keyPath: 'key' });
+      } else {
+        store = (e.target as IDBOpenDBRequest).transaction!.objectStore(IDB_STORE);
+      }
+      if (!store.indexNames.contains('by_download')) {
+        store.createIndex('by_download', 'downloadId', { unique: false });
+      }
     };
-    req.onsuccess = (e) => resolve((e.target as IDBOpenDBRequest).result);
-    req.onerror   = (e) => reject((e.target as IDBOpenDBRequest).error);
+    req.onsuccess = (e) => {
+      const db = (e.target as IDBOpenDBRequest).result;
+      db.onclose = () => { cachedDbPromise = null; };
+      db.onversionchange = () => { db.close(); cachedDbPromise = null; };
+      resolve(db);
+    };
+    req.onerror = (e) => {
+      cachedDbPromise = null;
+      reject((e.target as IDBOpenDBRequest).error);
+    };
   });
+
+  return cachedDbPromise;
 }
 
-/** Save a chunk (Blob or ArrayBuffer) for a given downloadId + chunkIndex. */
+/** Save a chunk (Blob or ArrayBuffer) with downloadId index metadata. */
 export async function saveChunk(downloadId: string, chunkIndex: number, chunk: ArrayBuffer | Blob): Promise<void> {
   const db  = await openIDB();
   if (!db) return;
@@ -210,7 +294,7 @@ export async function saveChunk(downloadId: string, chunkIndex: number, chunk: A
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(IDB_STORE, 'readwrite');
     const store = tx.objectStore(IDB_STORE);
-    const req   = store.put({ key, buffer: chunk });
+    const req   = store.put({ key, downloadId, chunkIndex, buffer: chunk });
     req.onsuccess = () => resolve();
     req.onerror   = (e) => reject((e.target as IDBRequest).error);
   });
@@ -268,25 +352,42 @@ export async function loadAllChunks(downloadId: string, count: number): Promise<
   });
 }
 
-/** Delete all chunks for a download (after merge or cancel). */
+/** Delete all chunks for a download using index search (fast O(K)) instead of full table scan. */
 export async function clearChunks(downloadId: string): Promise<void> {
   const db = await openIDB();
   if (!db) return;
   return new Promise((resolve, reject) => {
-    const tx    = db.transaction(IDB_STORE, 'readwrite');
+    const tx = db.transaction(IDB_STORE, 'readwrite');
     const store = tx.objectStore(IDB_STORE);
-    const req   = store.openCursor();
-    req.onsuccess = (e) => {
-      const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
-      if (cursor) {
-        if (typeof cursor.key === 'string' && cursor.key.startsWith(`${downloadId}_`)) {
-          cursor.delete();
+
+    if (store.indexNames.contains('by_download')) {
+      const index = store.index('by_download');
+      const req = index.openKeyCursor(IDBKeyRange.only(downloadId));
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (cursor) {
+          store.delete(cursor.primaryKey);
+          cursor.continue();
+        } else {
+          resolve();
         }
-        cursor.continue();
-      } else {
-        resolve();
-      }
-    };
-    req.onerror = (e) => reject((e.target as IDBRequest).error);
+      };
+      req.onerror = () => reject(req.error);
+    } else {
+      // Fallback for pre-index schemas
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          if (typeof cursor.key === 'string' && cursor.key.startsWith(`${downloadId}_`)) {
+            cursor.delete();
+          }
+          cursor.continue();
+        } else {
+          resolve();
+        }
+      };
+      req.onerror = (e) => reject((e.target as IDBRequest).error);
+    }
   });
 }

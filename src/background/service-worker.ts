@@ -12,6 +12,7 @@ import {
   handleContextMenuClick,
   openDashboard,
   updateBadge,
+  keepAliveGuard,
 } from './services/index.js';
 import { restoreDefaultIcon } from './icon-animator.js';
 
@@ -87,6 +88,7 @@ chrome.commands.onCommand.addListener((command) => {
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
+  if (keepAliveGuard.handleAlarm(alarm.name)) return;
   coordinator.queue.handleAlarm(alarm.name);
 });
 

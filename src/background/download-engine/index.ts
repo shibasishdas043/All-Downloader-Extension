@@ -11,6 +11,7 @@ import type {
   ErrorCallback,
   MetaCallback,
   ProgressState,
+  SegmentDescriptor,
 } from './types.js';
 import { probeUrl } from './probe.js';
 import { createThrottle, type RateLimiter } from './throttler.js';
@@ -22,6 +23,7 @@ import {
   getRegistryEntry,
   deleteRegistryEntry,
 } from './registry.js';
+import { hostGovernor } from './host-governor.js';
 
 export * from './types.js';
 export * from './probe.js';
@@ -29,6 +31,7 @@ export * from './throttler.js';
 export * from './registry.js';
 export * from './single-download.js';
 export * from './chunked-download.js';
+export * from './host-governor.js';
 
 const PROGRESS_MIN_GAP = UI.PROGRESS_INTERVAL;
 
@@ -48,6 +51,7 @@ export async function startDownload(
 
   const controller = new AbortController();
   setRegistryEntry(download.id, { controller, segments: [] });
+  hostGovernor.registerDownload(download.id, download.url);
 
   try {
     const meta = await probeUrl(download.url, controller.signal);
@@ -96,12 +100,12 @@ export async function startDownload(
     };
     const tracker = new SpeedTracker();
 
-    const emit = () => {
+    const emit = (segs?: SegmentDescriptor[]) => {
       const now = Date.now();
       if (now - progress.lastBroadcast < PROGRESS_MIN_GAP) return;
       progress.lastBroadcast = now;
       tracker.record(progress.received, progress.total);
-      onProgress(download.id, progress.received, progress.total, tracker.getSnapshot());
+      onProgress(download.id, progress.received, progress.total, tracker.getSnapshot(), segs);
     };
 
     let result: DownloadResult;
@@ -165,6 +169,7 @@ export async function startDownload(
     }
 
     deleteRegistryEntry(download.id);
+    hostGovernor.unregisterDownload(download.id, download.url);
 
     const finalSize = progress.total || result.totalSize;
     tracker.record(finalSize, finalSize);
@@ -179,12 +184,14 @@ export async function startDownload(
 
   } catch (err: any) {
     deleteRegistryEntry(download.id);
+    hostGovernor.unregisterDownload(download.id, download.url);
     if (err?.name === 'AbortError') return;
     onError(download.id, err?.message || 'Unknown download error');
   }
 }
 
 export function pauseDownload(downloadId: string): void {
+  hostGovernor.unregisterDownload(downloadId);
   const entry = getRegistryEntry(downloadId);
   if (entry) {
     entry.controller.abort();

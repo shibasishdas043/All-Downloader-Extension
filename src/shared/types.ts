@@ -56,6 +56,7 @@ export interface DownloadItem {
   error?: string | null;
   resumable?: boolean;
   chunks?: ChunkInfo[];
+  segments?: any[];
   totalChunks?: number;
   hashExpected?: string | null;
   hashActual?: string | null;

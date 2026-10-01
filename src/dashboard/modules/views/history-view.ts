@@ -202,9 +202,8 @@ export function bindHistory(): void {
         updateSidebarStats();
         updateBadges();
       } else if (act === 'retry') {
-        await sendMsg({ type: MSG.RETRY_DOWNLOAD, id });
         if (state.downloads[id]) {
-          state.downloads[id].state = DOWNLOAD_STATE.QUEUED;
+          state.downloads[id].state = DOWNLOAD_STATE.CONNECTING;
           state.downloads[id].percent = 0;
           state.downloads[id].received = 0;
           state.downloads[id].speed = 0;
@@ -213,6 +212,7 @@ export function bindHistory(): void {
         renderHistory();
         updateSidebarStats();
         updateBadges();
+        await sendMsg({ type: MSG.RETRY_DOWNLOAD, id });
       }
     });
   }
