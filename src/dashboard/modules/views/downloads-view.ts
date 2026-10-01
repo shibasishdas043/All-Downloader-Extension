@@ -3,7 +3,7 @@
 // ============================================================
 import { DOWNLOAD_STATE, MSG } from '../../../shared/constants.js';
 import {
-  formatBytes, formatSpeed, formatETA, formatHumanETA,
+  formatBytes, formatSpeed, formatHumanETA,
   truncateName, getExtension
 } from '../../../shared/utils.js';
 import { state } from '../state.js';
@@ -27,11 +27,14 @@ export function formatETADisplay(dl: any): string {
 }
 
 export function formatSizeDisplay(dl: any): string {
-  const total = dl.total || dl.filesize || 0;
+  const total = dl.total || dl.filesize || dl.fileSize || 0;
   const received = dl.received || dl.receivedBytes || 0;
 
-  if (dl.state === DOWNLOAD_STATE.COMPLETED && total > 0) {
-    return `<div class="size-cell-wrap"><span class="size-downloaded">${formatBytes(total)}</span></div>`;
+  if (dl.state === DOWNLOAD_STATE.COMPLETED) {
+    const finalSize = total > 0 ? total : received;
+    if (finalSize > 0) {
+      return `<div class="size-cell-wrap"><span class="size-downloaded">${formatBytes(finalSize)}</span></div>`;
+    }
   }
 
   if (total > 0) {
@@ -109,6 +112,7 @@ export function buildRowActions(dl: any): string {
   const isPaused = dl.state === DOWNLOAD_STATE.PAUSED || dl.state === DOWNLOAD_STATE.QUEUED;
   const isError  = dl.state === DOWNLOAD_STATE.ERROR || dl.state === DOWNLOAD_STATE.CANCELLED;
   const isDone   = dl.state === DOWNLOAD_STATE.COMPLETED;
+  const canCancel = isActive || isPaused;
 
   let html = '';
   if (isActive) {
@@ -121,12 +125,20 @@ export function buildRowActions(dl: any): string {
       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
     </button>`;
   }
-  if (isError) {
-    html += `<button class="row-btn row-btn-retry" data-act="retry" data-id="${dl.id}" title="Retry">
+  if (isDone) {
+    html += `<button class="row-btn row-btn-folder" data-act="open" data-id="${dl.id}" title="Open folder">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+    </button>`;
+    html += `<button class="row-btn row-btn-retry" data-act="retry" data-id="${dl.id}" title="Re-download">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg>
     </button>`;
   }
-  if (!isDone) {
+  if (isError) {
+    html += `<button class="row-btn row-btn-retry" data-act="retry" data-id="${dl.id}" title="Re-download">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg>
+    </button>`;
+  }
+  if (canCancel) {
     html += `<button class="row-btn row-btn-cancel danger" data-act="cancel" data-id="${dl.id}" title="Cancel">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
     </button>`;
@@ -147,7 +159,7 @@ export function buildRow(dl: any, index = 0): HTMLTableRowElement {
   const badgeMarkup = ext
     ? ext.slice(0, 4).toUpperCase()
     : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
-  const pct = dl.percent || 0;
+  const pct = dl.percent || (dl.total > 0 && dl.received > 0 ? Math.round((dl.received / dl.total) * 100) : 0);
 
   tr.innerHTML = `
     <td class="col-check">
@@ -220,6 +232,12 @@ export function updateTableRowState(id: string): void {
     if (speed) speed.textContent = dl.state === DOWNLOAD_STATE.DOWNLOADING ? formatSpeed(dl.speed) : '—';
     const eta = tr.querySelector('.col-eta');
     if (eta) eta.innerHTML = formatETADisplay(dl);
+
+    const pct = dl.percent || (dl.total > 0 && dl.received > 0 ? Math.round((dl.received / dl.total) * 100) : 0);
+    const fill = tr.querySelector('.tbl-progress-fill') as HTMLElement | null;
+    if (fill) fill.style.width = `${pct}%`;
+    const label = tr.querySelector('.tbl-progress-label');
+    if (label) label.textContent = `${pct}%`;
 
     // If activeFilter is active and state no longer satisfies it, refresh table
     if (state.activeFilter !== 'all' && state.currentView === 'downloads') {
@@ -305,7 +323,11 @@ export async function act(type: string, id: string): Promise<void> {
     updateBadges();
     renderDownloadsTable();
   } else if (type === MSG.CANCEL_DOWNLOAD) {
-    if (state.downloads[id]) state.downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+    if (state.downloads[id]) {
+      state.downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+      state.downloads[id].speed = 0;
+      state.downloads[id].eta = 0;
+    }
     state.selected.delete(id);
     updateTableRowState(id);
     updateSelectAllCheckbox();
@@ -319,6 +341,17 @@ export async function act(type: string, id: string): Promise<void> {
     updateBadges();
   } else if (type === MSG.RESUME_DOWNLOAD) {
     if (state.downloads[id]) state.downloads[id].state = DOWNLOAD_STATE.DOWNLOADING;
+    updateTableRowState(id);
+    updateSidebarStats();
+    updateBadges();
+  } else if (type === MSG.RETRY_DOWNLOAD) {
+    if (state.downloads[id]) {
+      state.downloads[id].state = DOWNLOAD_STATE.QUEUED;
+      state.downloads[id].percent = 0;
+      state.downloads[id].received = 0;
+      state.downloads[id].speed = 0;
+      state.downloads[id].error = null;
+    }
     updateTableRowState(id);
     updateSidebarStats();
     updateBadges();
@@ -337,6 +370,7 @@ export function bindTableDelegation(): void {
     const id = btn.dataset.id;
     if (!id) return;
 
+    if (actType === 'open')   await act(MSG.SHOW_IN_FOLDER,  id);
     if (actType === 'pause')  await act(MSG.PAUSE_DOWNLOAD,  id);
     if (actType === 'resume') await act(MSG.RESUME_DOWNLOAD, id);
     if (actType === 'retry')  await act(MSG.RETRY_DOWNLOAD,  id);

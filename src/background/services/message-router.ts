@@ -137,6 +137,19 @@ export async function handleMessage(
       return { ok };
     }
 
+    case MSG.USER_RIGHT_CLICKED: {
+      coordinator.rightClickDetector.record(
+        msg.payload?.urls || [],
+        msg.payload?.pageUrl || ''
+      );
+      return { ok: true };
+    }
+
+    case MSG.USER_DISMISSED_CONTEXT_MENU: {
+      coordinator.rightClickDetector.dismiss(msg.payload?.pageUrl || '');
+      return { ok: true };
+    }
+
     default:
       return { ok: false, error: `Unknown message type: ${msg?.type}` };
   }

@@ -21,11 +21,17 @@ export function setupContextMenu(): void {
 
 export async function handleContextMenuClick(
   info: chrome.contextMenus.OnClickData,
-  onAddDownload: (opts: { url: string; filename?: string }) => Promise<any>
+  onAddDownload: (opts: { url: string; filename?: string }) => Promise<any>,
+  coordinator?: any
 ): Promise<void> {
   if (info.menuItemId === 'adl-download-link') {
     const url = info.linkUrl || info.srcUrl;
-    if (url) await onAddDownload({ url, filename: getFilenameFromUrl(url) });
+    if (url) {
+      if (coordinator?.rightClickDetector) {
+        coordinator.rightClickDetector.consume(url);
+      }
+      await onAddDownload({ url, filename: getFilenameFromUrl(url) });
+    }
   }
   if (info.menuItemId === 'adl-open-dashboard') {
     openDashboard();

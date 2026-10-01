@@ -98,11 +98,33 @@ export function handleSWMessage(msg: any): void {
     case MSG.DOWNLOAD_CANCELLED:
     case MSG.DOWNLOAD_ERROR:
       if (state.downloads[msg.id]) {
-        if (msg.type === MSG.DOWNLOAD_COMPLETED) state.downloads[msg.id].state = DOWNLOAD_STATE.COMPLETED;
-        if (msg.type === MSG.DOWNLOAD_PAUSED)    state.downloads[msg.id].state = DOWNLOAD_STATE.PAUSED;
-        if (msg.type === MSG.DOWNLOAD_CANCELLED) state.downloads[msg.id].state = DOWNLOAD_STATE.CANCELLED;
+        if (msg.type === MSG.DOWNLOAD_COMPLETED) {
+          state.downloads[msg.id].state = DOWNLOAD_STATE.COMPLETED;
+          state.downloads[msg.id].status = DOWNLOAD_STATE.COMPLETED;
+          const sz = msg.total || msg.filesize || msg.received || msg.receivedBytes;
+          if (sz) {
+            state.downloads[msg.id].total = sz;
+            state.downloads[msg.id].filesize = sz;
+            state.downloads[msg.id].received = sz;
+            state.downloads[msg.id].receivedBytes = sz;
+          }
+          if (msg.filename) {
+            state.downloads[msg.id].filename = msg.filename;
+          }
+          if (msg.download) {
+            Object.assign(state.downloads[msg.id], msg.download);
+          }
+        }
+        if (msg.type === MSG.DOWNLOAD_PAUSED) state.downloads[msg.id].state = DOWNLOAD_STATE.PAUSED;
+        if (msg.type === MSG.DOWNLOAD_CANCELLED) {
+          state.downloads[msg.id].state = DOWNLOAD_STATE.CANCELLED;
+          state.downloads[msg.id].speed = 0;
+          state.downloads[msg.id].eta = 0;
+        }
         if (msg.type === MSG.DOWNLOAD_ERROR) {
           state.downloads[msg.id].state = DOWNLOAD_STATE.ERROR;
+          state.downloads[msg.id].speed = 0;
+          state.downloads[msg.id].eta = 0;
           if (msg.error) state.downloads[msg.id].error = msg.error;
         }
         updateTableRowState(msg.id);

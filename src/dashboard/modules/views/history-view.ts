@@ -119,7 +119,12 @@ export function renderHistory(): void {
           </div>
         </div>
       </td>
-      <td class="col-hist-size">${dl.total > 0 ? formatBytes(dl.total) : dl.received > 0 ? `~${formatBytes(dl.received)}` : '—'}</td>
+      <td class="col-hist-size">${(() => {
+        const total = dl.total || dl.filesize || dl.fileSize || 0;
+        const received = dl.received || dl.receivedBytes || 0;
+        const sz = total > 0 ? total : received;
+        return sz > 0 ? formatBytes(sz) : '—';
+      })()}</td>
       <td class="col-hist-cat">
         <span class="chip">${escHtml((dl.category || detectCategory(dl.filename, (dl as any).mimeType)).toUpperCase())}</span>
       </td>
@@ -129,7 +134,11 @@ export function renderHistory(): void {
       </td>
       <td class="col-hist-actions">
         <div class="row-actions">
-          <button class="row-btn row-btn-retry" data-hist-act="retry" data-id="${dl.id}" title="Download again">
+          ${dl.state === DOWNLOAD_STATE.COMPLETED ? `
+          <button class="row-btn row-btn-folder" data-hist-act="open" data-id="${dl.id}" title="Open folder">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </button>` : ''}
+          <button class="row-btn row-btn-retry" data-hist-act="retry" data-id="${dl.id}" title="Re-download">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.19"/></svg>
           </button>
           <button class="row-btn row-btn-delete danger" data-hist-act="delete" data-id="${dl.id}" title="Remove from history">
@@ -147,7 +156,7 @@ export function renderHistory(): void {
   renderPaginationControls(list.length, state.histCurrentPage, totalPages, 'history-pagination', (newPage) => {
     state.histCurrentPage = newPage;
     renderHistory();
-  });
+  }, state.HIST_PAGE_SIZE);
 }
 
 export function bindHistory(): void {
@@ -184,7 +193,9 @@ export function bindHistory(): void {
       const id = btn.dataset.id;
       if (!id) return;
 
-      if (act === 'delete') {
+      if (act === 'open') {
+        await sendMsg({ type: MSG.SHOW_IN_FOLDER, id });
+      } else if (act === 'delete') {
         await sendMsg({ type: MSG.DELETE_DOWNLOAD, id });
         delete state.downloads[id];
         renderHistory();

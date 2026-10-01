@@ -13,7 +13,7 @@ import type {
   ProgressState,
 } from './types.js';
 import { probeUrl } from './probe.js';
-import { createThrottle, RateLimiter } from './throttler.js';
+import type { RateLimiter } from './throttler.js';
 import { executeSingleDownload } from './single-download.js';
 import { executeChunkedDownload } from './chunked-download.js';
 import {

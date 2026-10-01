@@ -26,7 +26,8 @@ export function renderPaginationControls(
   page: number,
   totalPages: number,
   containerId: string,
-  onPageChange: (p: number) => void
+  onPageChange: (p: number) => void,
+  pageSize: number = state.PAGE_SIZE
 ): void {
   let container = document.getElementById(containerId);
   if (!container) {
@@ -39,15 +40,15 @@ export function renderPaginationControls(
     else return;
   }
 
-  if (totalCount <= state.PAGE_SIZE) {
+  if (totalCount <= pageSize) {
     container.hidden = true;
     container.innerHTML = '';
     return;
   }
 
   container.hidden = false;
-  const startItem = (page - 1) * state.PAGE_SIZE + 1;
-  const endItem = Math.min(page * state.PAGE_SIZE, totalCount);
+  const startItem = (page - 1) * pageSize + 1;
+  const endItem = Math.min(page * pageSize, totalCount);
 
   container.innerHTML = `
     <span class="pagination-info">Showing ${startItem}–${endItem} of ${totalCount}</span>

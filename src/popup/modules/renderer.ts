@@ -3,8 +3,8 @@
 // ============================================================
 import { DOWNLOAD_STATE, UI } from '../../shared/constants.js';
 import {
-  formatBytes, formatSpeed, formatETA, formatHumanETA,
-  truncateName, getExtension
+  formatBytes, formatSpeed, formatHumanETA,
+  truncateName
 } from '../../shared/utils.js';
 import type { DownloadState } from '../../shared/types.js';
 import { $list, $empty, $statusActive, $statusSpeed, $statusQueue, $tmpl } from './dom.js';
@@ -90,7 +90,8 @@ export function populateItem(el: HTMLElement, dl: any): void {
 
   let metaHtml = '';
   if (st === DOWNLOAD_STATE.COMPLETED) {
-    const size = total > 0 ? formatBytes(total) : (received > 0 ? formatBytes(received) : '—');
+    const sizeVal = total > 0 ? total : (received > 0 ? received : (dl.fileSize || dl.filesize || 0));
+    const size = sizeVal > 0 ? formatBytes(sizeVal) : '—';
     metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text completed">Completed</span>`;
   } else if (st === DOWNLOAD_STATE.CANCELLED) {
     const size = total > 0 ? formatBytes(total) : (received > 0 ? formatBytes(received) : '—');

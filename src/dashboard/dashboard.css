@@ -878,13 +878,20 @@ th.col-eta {
 }
 
 .col-status {
-  width: 11%;
-  min-width: 115px;
+  width: 12%;
+  min-width: 125px;
   text-align: center !important;
 }
 
-th.col-status {
+th.col-status,
+td.col-status,
+.dl-table th.col-status,
+.dl-table td.col-status {
   text-align: center !important;
+  padding-left: 6px;
+  padding-right: 6px;
+  overflow: visible;
+  text-overflow: clip;
 }
 
 .col-actions {
@@ -969,20 +976,27 @@ th.col-actions {
   width: 100%;
 }
 
-/* Hide progress bar and percentage for completed and cancelled downloads */
-tr[data-state="completed"] .tbl-progress-wrap,
-tr[data-state="cancelled"] .tbl-progress-wrap {
+/* Hide progress bar and percentage only for completed downloads */
+tr[data-state="completed"] .tbl-progress-wrap {
   display: none !important;
 }
 
-tr[data-state="completed"] .col-progress::after,
-tr[data-state="cancelled"] .col-progress::after {
+tr[data-state="completed"] .col-progress::after {
   content: '—';
   display: inline-block;
   font-family: var(--mono);
   color: var(--text-muted);
   font-weight: 500;
   font-size: 13px;
+}
+
+/* Cancelled state: preserve progress bar with clean muted indicator */
+tr[data-state="cancelled"] .tbl-progress-fill {
+  background: #94a3b8;
+}
+
+tr[data-state="cancelled"] .tbl-progress-label {
+  color: var(--text-muted);
 }
 
 .tbl-progress-track {
@@ -1110,8 +1124,9 @@ tr[data-state="cancelled"] .col-progress::after {
 }
 
 .status-badge.cancelled {
-  background: #e2e8f0;
+  background: #f1f5f9;
   color: #475569;
+  border: 1px solid #cbd5e1;
 }
 
 .status-badge.connecting {
@@ -1585,14 +1600,10 @@ tr[data-state="cancelled"] .col-progress::after {
 
 .col-hist-actions,
 #history-table td:nth-child(5) {
-  width: 12%;
-  min-width: 90px;
+  width: 130px;
+  min-width: 130px;
   text-align: right !important;
   overflow: visible;
-}
-
-#history-table td:nth-child(5) .row-btn {
-  margin-left: auto;
 }
 
 #history-table .chip {

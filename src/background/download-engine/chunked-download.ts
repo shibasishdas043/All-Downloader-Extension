@@ -1,7 +1,7 @@
 // ============================================================
 //  All-Downloader — Multi-Segment (Chunked) Parallel Download
 // ============================================================
-import { saveChunk, loadChunk } from '../storage.js';
+import { saveChunk } from '../storage.js';
 import type { DownloadResult } from '../../shared/types.js';
 import type { ChunkedDownloadParams, SegmentDescriptor, SegmentFetchParams } from './types.js';
 import { getRegistryEntry } from './registry.js';

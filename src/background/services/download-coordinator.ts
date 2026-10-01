@@ -7,7 +7,7 @@ import {
   calcPercent
 } from '../../shared/utils.js';
 import {
-  upsertDownload, getDownload, deleteDownload,
+  upsertDownload, getDownload,
   loadDownloads, saveDownloads, recordCompletion, clearChunks
 } from '../storage.js';
 import { startDownload, pauseDownload, cancelDownload, RateLimiter } from '../download-engine.js';
@@ -21,6 +21,7 @@ import {
   type PendingChromeDownload
 } from './offscreen-manager.js';
 import { showDownloadStartedToast } from './toast-manager.js';
+import { RightClickDetector, urlsMatch } from './right-click-detector.js';
 
 export interface AddDownloadOptions {
   url: string;
@@ -35,6 +36,7 @@ export class DownloadCoordinator {
   public downloadCache = new Map<string, DownloadItem>();
   public pendingChromeDownloads = new Map<number, PendingChromeDownload>();
   public ownBlobUrls = new Set<string>();
+  public rightClickDetector = new RightClickDetector();
   public queue: QueueManager;
   public rateLimiter: RateLimiter;
 
@@ -156,12 +158,31 @@ export class DownloadCoordinator {
       },
       async (id, result, finalFilename) => {
         try {
+          const actualSize = result.totalSize || (dl as any).filesize || (dl as any).total || 0;
           const shouldVerify = Boolean(this.settings.verifyIntegrity);
           if (shouldVerify) {
-            await this.updateState(id, DOWNLOAD_STATE.VERIFYING as DownloadState);
-            broadcastMessage({ type: MSG.DOWNLOAD_PROGRESS, id, state: DOWNLOAD_STATE.VERIFYING });
+            await this.updateState(id, DOWNLOAD_STATE.VERIFYING as DownloadState, {
+              total: actualSize,
+              filesize: actualSize,
+              received: actualSize,
+              receivedBytes: actualSize,
+            });
+            broadcastMessage({
+              type: MSG.DOWNLOAD_PROGRESS,
+              id,
+              state: DOWNLOAD_STATE.VERIFYING,
+              total: actualSize,
+              filesize: actualSize,
+              received: actualSize,
+              receivedBytes: actualSize,
+            });
           } else {
-            await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState);
+            await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
+              total: actualSize,
+              filesize: actualSize,
+              received: actualSize,
+              receivedBytes: actualSize,
+            });
           }
 
           const safeFilename = sanitizeFilename(finalFilename);
@@ -204,12 +225,16 @@ export class DownloadCoordinator {
           const blobUrl = response.blobUrl;
           this.ownBlobUrls.add(blobUrl);
 
-          // Update with final MIME type, category, and integrity verification
+          // Update with final MIME type, category, integrity verification, and verified file size
           await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
             category: resolvedCategory,
             mimeType: resolvedMime,
             hashActual: actualHash,
             hashVerified: verified,
+            total: actualSize,
+            filesize: actualSize,
+            received: actualSize,
+            receivedBytes: actualSize,
           });
 
           // 3. Initiate native Chrome streaming download to user disk
@@ -238,7 +263,7 @@ export class DownloadCoordinator {
                 id,
                 blobUrl,
                 safeFilename,
-                fileSize: result.totalSize,
+                fileSize: actualSize,
               });
             },
           );
@@ -322,18 +347,44 @@ export class DownloadCoordinator {
 
         const completedAt = Date.now();
         const dlRecord: any = await getDownload(pending.id);
-        await this.updateState(pending.id, DOWNLOAD_STATE.COMPLETED as DownloadState, {
+        let resolvedSize = pending.fileSize || dlRecord?.filesize || dlRecord?.total || dlRecord?.receivedBytes || dlRecord?.received || 0;
+
+        if (resolvedSize <= 0 && typeof chrome !== 'undefined' && chrome.downloads?.search) {
+          try {
+            const results = await chrome.downloads.search({ id: delta.id });
+            if (results && results[0]) {
+              resolvedSize = results[0].fileSize || results[0].totalBytes || results[0].bytesReceived || 0;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        const updatedDl = await this.updateState(pending.id, DOWNLOAD_STATE.COMPLETED as DownloadState, {
           completedAt,
           percent: 100,
           progress: 100,
           speed: 0,
           eta: 0,
           filename: pending.safeFilename,
+          total: resolvedSize,
+          filesize: resolvedSize,
+          received: resolvedSize,
+          receivedBytes: resolvedSize,
         });
 
-        await recordCompletion(pending.fileSize, completedAt - (dlRecord?.startedAt || completedAt));
+        await recordCompletion(resolvedSize, completedAt - (dlRecord?.startedAt || completedAt));
         this.queue.markDone(pending.id);
-        broadcastMessage({ type: MSG.DOWNLOAD_COMPLETED, id: pending.id });
+        broadcastMessage({
+          type: MSG.DOWNLOAD_COMPLETED,
+          id: pending.id,
+          filename: pending.safeFilename,
+          total: resolvedSize,
+          filesize: resolvedSize,
+          received: resolvedSize,
+          receivedBytes: resolvedSize,
+          download: updatedDl,
+        });
 
         if (this.settings.showNotifications) {
           showNotification('Download Complete', pending.safeFilename);
@@ -369,6 +420,58 @@ export class DownloadCoordinator {
     }
 
     if (item.url.startsWith('blob:') || item.url.startsWith('data:')) return;
+
+    if (item.byExtensionId && item.byExtensionId === chrome.runtime.id) {
+      return;
+    }
+
+    // Dynamically bypass interception for user-initiated right-click Save As (images, links, media, page)
+    if (this.rightClickDetector.isRightClickDownload(item)) {
+      console.log(`[ADL] Bypassing interception for user-initiated Save As: ${item.url}`);
+      return;
+    }
+
+    // Dynamically bypass interception if download corresponds to an active tab
+    // (e.g. user opened an image/media/PDF directly in a tab and clicked "Save image as..." or Ctrl+S)
+    try {
+      if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
+        const activeTabs = await chrome.tabs.query({ active: true });
+        const itemFn = item.filename ? getFilename(item.filename) : getFilename(item.url);
+
+        for (const tab of activeTabs) {
+          if (!tab.url) continue;
+
+          // A. URL match with active tab
+          if (urlsMatch(item.url, tab.url) || (item.finalUrl && urlsMatch(item.finalUrl, tab.url))) {
+            console.log(`[ADL] Bypassing interception: download URL matches active tab URL (${tab.url})`);
+            return;
+          }
+
+          // B. Filename match on same origin with active tab
+          const tabFn = getFilename(tab.url);
+          if (itemFn && tabFn && itemFn.toLowerCase() === tabFn.toLowerCase()) {
+            try {
+              const tabOrigin = new URL(tab.url).origin;
+              const itemOrigin = new URL(item.url).origin;
+              if (tabOrigin === itemOrigin) {
+                console.log(`[ADL] Bypassing interception: download filename matches active tab media (${tabFn})`);
+                return;
+              }
+            } catch {
+              // ignore
+            }
+          }
+
+          // C. Tab title match (Chrome sets standalone media tab title to "filename.ext (dimensions)")
+          if (tab.title && itemFn && tab.title.toLowerCase().startsWith(itemFn.toLowerCase())) {
+            console.log(`[ADL] Bypassing interception: download filename matches active tab title (${tab.title})`);
+            return;
+          }
+        }
+      }
+    } catch (tabErr) {
+      console.warn('[ADL] Error querying active tabs for Save As detection:', tabErr);
+    }
 
     if (item.filename && (item.filename.startsWith('/') || /^[A-Za-z]:[/\\]/.test(item.filename))) {
       return;

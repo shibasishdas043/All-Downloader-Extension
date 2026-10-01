@@ -22,6 +22,21 @@ const coordinator = new DownloadCoordinator(settings);
 //  Lifecycle: onInstalled & activate
 // ─────────────────────────────────────────────────────────────
 
+async function injectContentScriptIntoExistingTabs(): Promise<void> {
+  try {
+    const tabs = await chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] });
+    for (const tab of tabs) {
+      if (!tab.id) continue;
+      chrome.scripting.executeScript({
+        target: { tabId: tab.id, allFrames: true },
+        files: ['src/content/link-interceptor.js'],
+      }).catch(() => {});
+    }
+  } catch {
+    // ignore
+  }
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[ADL] Extension installed / updated.');
   restoreDefaultIcon();
@@ -29,6 +44,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   coordinator.updateSettings(settings);
   await coordinator.restoreInProgressDownloads();
   setupContextMenu();
+  await injectContentScriptIntoExistingTabs();
 });
 
 self.addEventListener('activate', async () => {
@@ -37,6 +53,7 @@ self.addEventListener('activate', async () => {
   coordinator.updateSettings(settings);
   await coordinator.restoreInProgressDownloads();
   updateBadge(coordinator.downloadCache.values());
+  await injectContentScriptIntoExistingTabs();
 });
 
 // ─────────────────────────────────────────────────────────────
@@ -56,7 +73,7 @@ chrome.downloads.onChanged.addListener((delta) => {
 // ─────────────────────────────────────────────────────────────
 
 chrome.contextMenus.onClicked.addListener((info) => {
-  handleContextMenuClick(info, (opts) => coordinator.addDownload(opts));
+  handleContextMenuClick(info, (opts) => coordinator.addDownload(opts), coordinator);
 });
 
 chrome.commands.onCommand.addListener((command) => {

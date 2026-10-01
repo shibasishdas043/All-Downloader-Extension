@@ -9,3 +9,4 @@ export * from './context-menu.js';
 export * from './download-coordinator.js';
 export * from './message-router.js';
 export * from './toast-manager.js';
+export * from './right-click-detector.js';

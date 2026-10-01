@@ -1,7 +1,7 @@
 // ============================================================
 //  All-Downloader — Popup Event Listeners & SW Message Handlers
 // ============================================================
-import { MSG, DOWNLOAD_STATE } from '../../shared/constants.js';
+import { MSG } from '../../shared/constants.js';
 import { $list, $modalAdd, $urlInput, showModal, hideModal } from './dom.js';
 import { downloads, setDownload } from './state.js';
 import {
@@ -92,6 +92,19 @@ export function handleSWMessage(msg: any): void {
         if (msg.type === MSG.DOWNLOAD_COMPLETED) {
           downloads[msg.id].state = DOWNLOAD_STATE.COMPLETED;
           downloads[msg.id].status = DOWNLOAD_STATE.COMPLETED;
+          const sz = msg.total || msg.filesize || msg.received || msg.receivedBytes;
+          if (sz) {
+            downloads[msg.id].total = sz;
+            downloads[msg.id].filesize = sz;
+            downloads[msg.id].received = sz;
+            downloads[msg.id].receivedBytes = sz;
+          }
+          if (msg.filename) {
+            downloads[msg.id].filename = msg.filename;
+          }
+          if (msg.download) {
+            Object.assign(downloads[msg.id], msg.download);
+          }
         }
         if (msg.type === MSG.DOWNLOAD_PAUSED) {
           downloads[msg.id].state = DOWNLOAD_STATE.PAUSED;
