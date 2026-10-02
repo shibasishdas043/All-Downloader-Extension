@@ -107,32 +107,31 @@ export class DownloadCoordinator {
     // Prevent stale in-flight events (progress, meta, late merge callbacks) from reviving
     // terminal or paused downloads back into active downloading/connecting states.
     if (currentStatus) {
-      const activeStates: DownloadState[] = [
-        DOWNLOAD_STATE.DOWNLOADING as DownloadState,
-        DOWNLOAD_STATE.CONNECTING as DownloadState,
-        DOWNLOAD_STATE.MERGING as DownloadState,
-        DOWNLOAD_STATE.VERIFYING as DownloadState,
-      ];
-      const isTryingToActivate = activeStates.includes(state);
-
       if (currentStatus === DOWNLOAD_STATE.CANCELLED) {
-        // A cancelled download can only be revived by an explicit user RETRY (which sets QUEUED or CONNECTING via message router)
-        // or re-cancelled/deleted. Stale DOWNLOADING/CONNECTING/MERGING/VERIFYING events from previous run MUST be ignored.
+        // A cancelled download can ONLY be revived by an explicit user RETRY (which sets QUEUED or CONNECTING with 0 bytes/percent)
+        // Stale events, QUEUED transitions, or active states MUST be strictly rejected.
         const isUserRevival = (state === DOWNLOAD_STATE.QUEUED || state === DOWNLOAD_STATE.CONNECTING) &&
-          (extra.receivedBytes === 0 || extra.percent === 0);
-        if (isTryingToActivate && !isUserRevival) {
-          return dl;
-        }
-      } else if (currentStatus === DOWNLOAD_STATE.PAUSED) {
-        // A paused download can only become QUEUED or CONNECTING (via RESUME/RETRY) or CANCELLED/ERROR
-        if (isTryingToActivate && state !== DOWNLOAD_STATE.CONNECTING) {
+          extra.receivedBytes === 0 &&
+          extra.percent === 0;
+        if (state !== DOWNLOAD_STATE.CANCELLED && !isUserRevival) {
           return dl;
         }
       } else if (currentStatus === DOWNLOAD_STATE.COMPLETED) {
-        // A completed download cannot transition to downloading/connecting/merging unless explicitly re-tried
+        // A completed download cannot transition to active or queued states unless explicitly re-tried
         const isUserRetry = (state === DOWNLOAD_STATE.QUEUED || state === DOWNLOAD_STATE.CONNECTING) &&
-          (extra.receivedBytes === 0 || extra.percent === 0);
-        if (isTryingToActivate && !isUserRetry) {
+          extra.receivedBytes === 0 &&
+          extra.percent === 0;
+        if (state !== DOWNLOAD_STATE.COMPLETED && !isUserRetry) {
+          return dl;
+        }
+      } else if (currentStatus === DOWNLOAD_STATE.PAUSED) {
+        // A paused download can only become CONNECTING or QUEUED (via explicit user RESUME/RETRY) or CANCELLED/ERROR
+        const activeStates: DownloadState[] = [
+          DOWNLOAD_STATE.DOWNLOADING as DownloadState,
+          DOWNLOAD_STATE.MERGING as DownloadState,
+          DOWNLOAD_STATE.VERIFYING as DownloadState,
+        ];
+        if (activeStates.includes(state)) {
           return dl;
         }
       }
@@ -605,7 +604,7 @@ export class DownloadCoordinator {
       this.downloadCache.set(dl.id, dl);
       const st = dl.status || (dl as any).state;
 
-      // Completed, cancelled, and paused downloads must remain in their saved terminal/paused states.
+      // Completed, cancelled, and already-paused downloads must remain in their saved states.
       if (
         st === DOWNLOAD_STATE.CANCELLED ||
         st === DOWNLOAD_STATE.PAUSED ||
@@ -615,9 +614,20 @@ export class DownloadCoordinator {
         continue;
       }
 
-      if (st === 'downloading' || st === 'connecting' || st === 'queued') {
-        await this.updateState(dl.id, DOWNLOAD_STATE.QUEUED as DownloadState, { speed: 0, eta: null });
-        this.queue.enqueue(dl.id);
+      if (st === 'downloading' || st === 'connecting') {
+        // Interrupted by browser shutdown — safely restore as PAUSED so network requests do NOT auto-start on launch.
+        // User can resume explicitly whenever they want.
+        await this.updateState(dl.id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+          speed: 0,
+          eta: null,
+          error: null,
+          errorMessage: null,
+        });
+      } else if (st === 'queued') {
+        // Pre-existing queued items only start if autoStart setting is enabled
+        if (this.settings.autoStart) {
+          this.queue.enqueue(dl.id);
+        }
       } else if (st === 'merging' || st === 'verifying') {
         await this.updateState(dl.id, DOWNLOAD_STATE.ERROR as DownloadState, {
           error: 'Interrupted during merge — click Retry to re-download.',
@@ -737,6 +747,16 @@ export class DownloadCoordinator {
     if (!this.settings.interceptDownloads) return;
 
     if (!item.url) return;
+
+    // Only intercept newly created, active in-progress downloads
+    if (item.state && item.state !== 'in_progress') return;
+
+    // Ignore historical or restored downloads on browser startup (older than 60s)
+    if (item.startTime) {
+      const ageMs = Date.now() - new Date(item.startTime).getTime();
+      if (ageMs > 60_000) return;
+    }
+
     if (this.ownBlobUrls.has(item.url)) {
       this.ownBlobUrls.delete(item.url);
       return;
@@ -746,6 +766,22 @@ export class DownloadCoordinator {
 
     if (item.byExtensionId && item.byExtensionId === chrome.runtime.id) {
       return;
+    }
+
+    // Prevent duplicate re-interception of downloads already active, queued, or explicitly cancelled
+    for (const dl of this.downloadCache.values()) {
+      if (dl.url === item.url) {
+        const st = dl.status || (dl as any).state;
+        if (
+          st === DOWNLOAD_STATE.CANCELLED ||
+          st === DOWNLOAD_STATE.DOWNLOADING ||
+          st === DOWNLOAD_STATE.CONNECTING ||
+          st === DOWNLOAD_STATE.PAUSED ||
+          st === DOWNLOAD_STATE.QUEUED
+        ) {
+          return;
+        }
+      }
     }
 
     // Dynamically bypass interception for user-initiated right-click Save As (images, links, media, page)
@@ -796,9 +832,20 @@ export class DownloadCoordinator {
       console.warn('[ADL] Error querying active tabs for Save As detection:', tabErr);
     }
 
-    chrome.downloads.cancel(item.id, () => {
-      chrome.downloads.erase({ id: item.id });
-    });
+    try {
+      chrome.downloads.cancel(item.id, () => {
+        if (chrome.runtime?.lastError) { /* ignore */ }
+        try {
+          chrome.downloads.erase({ id: item.id }, () => {
+            if (chrome.runtime?.lastError) { /* ignore */ }
+          });
+        } catch {
+          // ignore
+        }
+      });
+    } catch {
+      // ignore
+    }
 
     await this.addDownload({
       url: item.url,

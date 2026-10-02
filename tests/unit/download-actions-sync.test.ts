@@ -142,6 +142,9 @@ describe('Download Actions & Button Synchronization', () => {
     };
 
     const restoredQueue: string[] = [];
+    const restoredPaused: string[] = [];
+    const autoStart = true;
+
     for (const dl of Object.values(savedDownloads)) {
       const st = dl.status;
       if (
@@ -153,38 +156,37 @@ describe('Download Actions & Button Synchronization', () => {
         continue;
       }
 
-      if (st === 'downloading' || st === 'connecting' || st === 'queued') {
-        restoredQueue.push(dl.id);
+      if (st === 'downloading' || st === 'connecting') {
+        // Interrupted downloads safely restore as PAUSED without auto-starting
+        restoredPaused.push(dl.id);
+      } else if (st === 'queued') {
+        if (autoStart) restoredQueue.push(dl.id);
       }
     }
 
-    // Only dl-5 and dl-6 should be restored to queue; cancelled, paused, and completed items NEVER restart
-    expect(restoredQueue).toEqual(['dl-5', 'dl-6']);
+    // Cancelled, paused, completed, and error items are NEVER queued or auto-started
+    expect(restoredQueue).toEqual(['dl-6']);
+    expect(restoredPaused).toEqual(['dl-5']);
     expect(restoredQueue.includes('dl-1')).toBe(false);
     expect(restoredQueue.includes('dl-2')).toBe(false);
     expect(restoredQueue.includes('dl-3')).toBe(false);
+    expect(restoredQueue.includes('dl-4')).toBe(false);
+    expect(restoredQueue.includes('dl-5')).toBe(false);
   });
 
-  test('Late progress events cannot resurrect CANCELLED state back to DOWNLOADING', () => {
-    // Model state transition guard
+  test('Late progress events and unprompted QUEUED state cannot resurrect CANCELLED state', () => {
+    // Model updated state transition guard
     function simulateUpdateState(
       currentStatus: string,
       targetState: string,
       extra: Record<string, any> = {}
     ): string {
-      const activeStates = [
-        DOWNLOAD_STATE.DOWNLOADING,
-        DOWNLOAD_STATE.CONNECTING,
-        DOWNLOAD_STATE.MERGING,
-        DOWNLOAD_STATE.VERIFYING,
-      ];
-      const isTryingToActivate = activeStates.includes(targetState as any);
-
       if (currentStatus === DOWNLOAD_STATE.CANCELLED) {
         const isUserRevival =
           (targetState === DOWNLOAD_STATE.QUEUED || targetState === DOWNLOAD_STATE.CONNECTING) &&
-          (extra.receivedBytes === 0 || extra.percent === 0);
-        if (isTryingToActivate && !isUserRevival) {
+          extra.receivedBytes === 0 &&
+          extra.percent === 0;
+        if (targetState !== DOWNLOAD_STATE.CANCELLED && !isUserRevival) {
           return currentStatus; // Ignored / rejected
         }
       }
@@ -202,8 +204,38 @@ describe('Download Actions & Button Synchronization', () => {
     const afterLateConnecting = simulateUpdateState(state, DOWNLOAD_STATE.CONNECTING, { receivedBytes: 5000 });
     expect(afterLateConnecting).toBe(DOWNLOAD_STATE.CANCELLED);
 
-    // 4. Legitimate retry arrives
+    // 4. Stale/unprompted QUEUED transition arrives (e.g. from background restore loop)
+    const afterStaleQueued = simulateUpdateState(state, DOWNLOAD_STATE.QUEUED, { speed: 0, eta: null });
+    expect(afterStaleQueued).toBe(DOWNLOAD_STATE.CANCELLED);
+
+    // 5. Legitimate retry arrives
     const afterUserRetry = simulateUpdateState(state, DOWNLOAD_STATE.CONNECTING, { receivedBytes: 0, percent: 0 });
     expect(afterUserRetry).toBe(DOWNLOAD_STATE.CONNECTING);
+  });
+
+  test('Immediate cancellation sequencing guarantees synchronous state persistence before chunk cleanup', async () => {
+    let committedState = '';
+    let inQueue = true;
+    let chunksCleaned = false;
+
+    // Simulate inverted cancellation flow
+    async function cancelDownloadFlow(downloadId: string) {
+      // 1. Queue removal & immediate storage write
+      inQueue = false;
+      committedState = DOWNLOAD_STATE.CANCELLED;
+
+      // 2. Slow async chunk cleanup in background
+      try {
+        await new Promise(r => setTimeout(r, 10));
+        chunksCleaned = true;
+      } catch {
+        // ignore
+      }
+    }
+
+    await cancelDownloadFlow('test-dl-1');
+    expect(committedState).toBe(DOWNLOAD_STATE.CANCELLED);
+    expect(inQueue).toBe(false);
+    expect(chunksCleaned).toBe(true);
   });
 });

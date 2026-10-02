@@ -46,11 +46,19 @@ export async function handleMessage(
     case MSG.CLEAR_QUEUE: {
       const ids = coordinator.queue.clear();
       for (const id of ids) {
-        await cancelDownload(id);
-        coordinator.cleanupPending(id);
         coordinator.queue.remove(id);
-        await coordinator.updateState(id, DOWNLOAD_STATE.CANCELLED as DownloadState);
+        await coordinator.updateState(id, DOWNLOAD_STATE.CANCELLED as DownloadState, {
+          speed: 0,
+          eta: null,
+        });
         broadcastMessage({ type: MSG.DOWNLOAD_CANCELLED, id });
+        try {
+          await cancelDownload(id);
+        } catch (err) {
+          console.warn('[ADL] Error during chunk cleanup for clear-queue item:', err);
+        } finally {
+          coordinator.cleanupPending(id);
+        }
       }
       return { ok: true, queueOrder: [] };
     }
@@ -83,11 +91,19 @@ export async function handleMessage(
     }
 
     case MSG.CANCEL_DOWNLOAD: {
-      await cancelDownload(msg.id);
-      coordinator.cleanupPending(msg.id);
-      await coordinator.updateState(msg.id, DOWNLOAD_STATE.CANCELLED as DownloadState);
       coordinator.queue.remove(msg.id);
+      await coordinator.updateState(msg.id, DOWNLOAD_STATE.CANCELLED as DownloadState, {
+        speed: 0,
+        eta: null,
+      });
       broadcastMessage({ type: MSG.DOWNLOAD_CANCELLED, id: msg.id });
+      try {
+        await cancelDownload(msg.id);
+      } catch (err) {
+        console.warn('[ADL] Error during chunk cleanup for cancelled download:', err);
+      } finally {
+        coordinator.cleanupPending(msg.id);
+      }
       return { ok: true };
     }
 
@@ -111,13 +127,18 @@ export async function handleMessage(
     }
 
     case MSG.DELETE_DOWNLOAD: {
-      await cancelDownload(msg.id);
-      coordinator.cleanupPending(msg.id);
-      await deleteDownload(msg.id);
       coordinator.queue.remove(msg.id);
       coordinator.downloadCache.delete(msg.id);
+      await deleteDownload(msg.id);
       updateBadge(coordinator.downloadCache.values());
       broadcastMessage({ type: MSG.DOWNLOAD_DELETED, id: msg.id });
+      try {
+        await cancelDownload(msg.id);
+      } catch (err) {
+        console.warn('[ADL] Error during chunk cleanup for deleted download:', err);
+      } finally {
+        coordinator.cleanupPending(msg.id);
+      }
       return { ok: true };
     }
 
