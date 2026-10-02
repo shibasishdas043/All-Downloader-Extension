@@ -4,7 +4,7 @@
 import { MSG, DOWNLOAD_STATE } from '../../shared/constants.js';
 import {
   loadDownloads, getDownload, deleteDownload,
-  saveSettings, clearHistory
+  loadSettings, saveSettings, clearHistory
 } from '../storage.js';
 import { pauseDownload, cancelDownload } from '../download-engine.js';
 import type { DownloadState, ExtensionSettings } from '../../shared/types.js';
@@ -122,13 +122,16 @@ export async function handleMessage(
     }
 
     case MSG.GET_SETTINGS: {
-      return { ok: true, settings: coordinator.settings };
+      const freshSettings = await loadSettings();
+      coordinator.updateSettings(freshSettings);
+      return { ok: true, settings: freshSettings };
     }
 
     case MSG.UPDATE_SETTINGS: {
-      const updated = await saveSettings(msg.payload);
+      const updated = await saveSettings(msg.payload || {});
       coordinator.updateSettings(updated);
       onSettingsSaved(updated);
+      broadcastMessage({ type: MSG.SETTINGS_UPDATED, settings: updated });
       return { ok: true, settings: updated };
     }
 

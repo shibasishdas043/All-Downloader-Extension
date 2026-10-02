@@ -199,17 +199,25 @@ export async function resetStats(): Promise<void> {
 //  Settings CRUD
 // ─────────────────────────────────────────────────────────────
 
+let saveSettingsPromise: Promise<void> = Promise.resolve();
+
 /** Load settings, merged with defaults. */
 export async function loadSettings(): Promise<ExtensionSettings> {
   const result = await storageGet([STORAGE_KEY.SETTINGS]);
   return { ...DEFAULT_SETTINGS, ...(result[STORAGE_KEY.SETTINGS] || {}) } as ExtensionSettings;
 }
 
-/** Save partial or full settings object. */
+/** Save partial or full settings object with atomic mutex serialization. */
 export async function saveSettings(partial: Partial<ExtensionSettings>): Promise<ExtensionSettings> {
-  const current = await loadSettings();
-  const merged = { ...current, ...partial };
-  await storageSet({ [STORAGE_KEY.SETTINGS]: merged });
+  let merged: ExtensionSettings = { ...DEFAULT_SETTINGS };
+  saveSettingsPromise = saveSettingsPromise
+    .then(async () => {
+      const current = await loadSettings();
+      merged = { ...current, ...partial };
+      await storageSet({ [STORAGE_KEY.SETTINGS]: merged });
+    })
+    .catch((err) => console.error('[ADL Storage] Error writing settings to storage:', err));
+  await saveSettingsPromise;
   return merged;
 }
 

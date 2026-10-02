@@ -2308,6 +2308,11 @@ canvas {
   transform: translateX(0);
 }
 
+.save-status.error {
+  color: var(--accent-danger, #ef4444);
+  background: var(--danger-light, rgba(239, 68, 68, 0.12));
+}
+
 /* ════════════════════════════════════════════════════════════════
    MODAL (Flat Elevated Card)
 ════════════════════════════════════════════════════════════════ */

@@ -19,6 +19,27 @@ import { restoreDefaultIcon } from './icon-animator.js';
 let settings: ExtensionSettings = { ...DEFAULT_SETTINGS } as ExtensionSettings;
 const coordinator = new DownloadCoordinator(settings);
 
+let initPromise: Promise<void> | null = null;
+
+export async function ensureInitialized(): Promise<void> {
+  if (!initPromise) {
+    initPromise = (async () => {
+      try {
+        const loaded = await loadSettings();
+        settings = loaded;
+        coordinator.updateSettings(loaded);
+        await coordinator.restoreInProgressDownloads();
+      } catch (err) {
+        console.error('[ADL] Failed to initialize settings & downloads on wakeup:', err);
+      }
+    })();
+  }
+  return initPromise;
+}
+
+// Trigger initialization immediately on service worker boot
+ensureInitialized();
+
 // ─────────────────────────────────────────────────────────────
 //  Lifecycle: onInstalled & activate
 // ─────────────────────────────────────────────────────────────
@@ -41,18 +62,14 @@ async function injectContentScriptIntoExistingTabs(): Promise<void> {
 chrome.runtime.onInstalled.addListener(async () => {
   console.log('[ADL] Extension installed / updated.');
   restoreDefaultIcon();
-  settings = await loadSettings();
-  coordinator.updateSettings(settings);
-  await coordinator.restoreInProgressDownloads();
+  await ensureInitialized();
   setupContextMenu();
   await injectContentScriptIntoExistingTabs();
 });
 
 self.addEventListener('activate', async () => {
   restoreDefaultIcon();
-  settings = await loadSettings();
-  coordinator.updateSettings(settings);
-  await coordinator.restoreInProgressDownloads();
+  await ensureInitialized();
   updateBadge(coordinator.downloadCache.values());
   await injectContentScriptIntoExistingTabs();
 });
@@ -61,11 +78,13 @@ self.addEventListener('activate', async () => {
 //  Chrome Download Events
 // ─────────────────────────────────────────────────────────────
 
-chrome.downloads.onCreated.addListener((item) => {
+chrome.downloads.onCreated.addListener(async (item) => {
+  await ensureInitialized();
   coordinator.handleChromeDownloadCreated(item);
 });
 
-chrome.downloads.onChanged.addListener((delta) => {
+chrome.downloads.onChanged.addListener(async (delta) => {
+  await ensureInitialized();
   coordinator.handleChromeDownloadChange(delta);
 });
 
@@ -79,7 +98,8 @@ if (chrome.downloads.onDeterminingFilename) {
 //  Context Menu & Commands & Alarms
 // ─────────────────────────────────────────────────────────────
 
-chrome.contextMenus.onClicked.addListener((info) => {
+chrome.contextMenus.onClicked.addListener(async (info) => {
+  await ensureInitialized();
   handleContextMenuClick(info, (opts) => coordinator.addDownload(opts), coordinator);
 });
 
@@ -87,8 +107,9 @@ chrome.commands.onCommand.addListener((command) => {
   if (command === 'open-dashboard') openDashboard();
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
+chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (keepAliveGuard.handleAlarm(alarm.name)) return;
+  await ensureInitialized();
   coordinator.queue.handleAlarm(alarm.name);
 });
 
@@ -97,9 +118,10 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // ─────────────────────────────────────────────────────────────
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  handleMessage(msg, coordinator, (updatedSettings) => {
-    settings = updatedSettings;
-  })
+  ensureInitialized()
+    .then(() => handleMessage(msg, coordinator, (updatedSettings) => {
+      settings = updatedSettings;
+    }))
     .then(sendResponse)
     .catch((err) => {
       sendResponse({ ok: false, error: err?.message || 'Error handling message' });

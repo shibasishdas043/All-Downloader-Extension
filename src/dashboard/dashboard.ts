@@ -202,6 +202,13 @@ export function handleSWMessage(msg: any): void {
       updateSidebarStats();
       updateBadges();
       break;
+
+    case MSG.SETTINGS_UPDATED:
+      if (msg.settings) {
+        state.settings = msg.settings;
+        loadSettingsUI();
+      }
+      break;
   }
 }
 
@@ -212,7 +219,10 @@ async function init(): Promise<void> {
     sendMsg({ type: MSG.GET_SETTINGS }),
   ]);
 
-  if (setRes?.settings) state.settings = setRes.settings;
+  if (setRes?.settings) {
+    state.settings = setRes.settings;
+  }
+  loadSettingsUI();
 
   if (dlRes?.downloads) {
     // Memory optimization: Prune items exceeding maxHistoryItems to bound memory footprint
