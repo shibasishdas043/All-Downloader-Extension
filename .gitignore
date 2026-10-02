@@ -164,3 +164,5 @@ chrome-profile/
 .chrome-debug/
 firefox-profile/
 web-ext-artifacts/
+
+bugs/*

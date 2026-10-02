@@ -1,0 +1,83 @@
+name: Release Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: package.json
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Build extension & package zip
+        run: npm run build
+
+      - name: Generate Release Info & Checksum
+        id: release_info
+        run: |
+          ZIP_FILE=$(ls all-downloader-v*.zip 2>/dev/null | head -n 1)
+          if [ -z "$ZIP_FILE" ]; then
+            ZIP_FILE=$(ls all-downloader*.zip | head -n 1)
+          fi
+          
+          CHECKSUM=$(sha256sum "$ZIP_FILE" | awk '{print $1}' | tr '[:lower:]' '[:upper:]')
+          FILE_SIZE=$(ls -lh "$ZIP_FILE" | awk '{print $5}')
+          
+          echo "zip_file=$ZIP_FILE" >> $GITHUB_OUTPUT
+          echo "checksum=$CHECKSUM" >> $GITHUB_OUTPUT
+          echo "file_size=$FILE_SIZE" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: all-downloader*.zip
+          name: "All Downloader ${{ github.ref_name }}"
+          body: |
+            > **A fast, privacy-first download accelerator for Chrome.** Multi-stream parallel engine, byte-range pause & resume, and 100% local privacy (Manifest V3).
+
+            ### 🚀 Quick Install (Chrome / Brave / Edge)
+            1. **Download & Unzip:** Download [`${{ steps.release_info.outputs.zip_file }}`](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.release_info.outputs.zip_file }}) below and extract it.
+            2. **Open Extensions:** Go to `chrome://extensions` in your browser.
+            3. **Enable Developer Mode:** Turn on the **Developer mode** toggle in the top-right corner.
+            4. **Load Extension:** Click **Load unpacked** and select the extracted folder.
+            5. **Pin to Toolbar:** Click the puzzle icon 🧩 and pin **All Downloader** for one-click access!
+
+            ### ✨ Key Features
+            * ⚡ **8-Thread Parallel Acceleration:** Multi-segment downloading to saturate connection bandwidth.
+            * ⏸️ **Pause & Resume:** Stop and resume large downloads seamlessly from the exact byte offset.
+            * 🛡️ **Zero Telemetry & 100% Local:** No analytics, no remote tracking, and Web Crypto SHA-256 integrity verification.
+
+            <details>
+            <summary><b>🔒 Security & Checksum (SHA-256)</b></summary>
+
+            | Asset | Size | SHA-256 Checksum |
+            | :--- | :--- | :--- |
+            | `${{ steps.release_info.outputs.zip_file }}` | ~${{ steps.release_info.outputs.file_size }} | `${{ steps.release_info.outputs.checksum }}` |
+
+            </details>
+          generate_release_notes: true

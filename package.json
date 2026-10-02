@@ -1,6 +1,6 @@
 {
   "name": "all-downloader-extension",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A secure, open-source browser download manager extension",
   "type": "module",
   "scripts": {

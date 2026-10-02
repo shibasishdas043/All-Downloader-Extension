@@ -242,6 +242,12 @@ async function init(): Promise<void> {
   updateSidebarStats();
   updateBadges();
 
+  const manifest = chrome.runtime?.getManifest?.();
+  if (manifest?.version) {
+    const brandVer = document.querySelector('.brand-version');
+    if (brandVer) brandVer.textContent = `v${manifest.version}`;
+  }
+
   function getInitialView(): string {
     const params = new URLSearchParams(window.location.search);
     const viewParam = params.get('view') || window.location.hash.replace(/^#/, '');

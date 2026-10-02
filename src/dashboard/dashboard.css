@@ -766,14 +766,15 @@ body {
   padding: 14px 22px;
   font-family: var(--mono);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.9px;
-  color: #0f172a; /* Solid pitch slate — stark and crystal clear */
+  color: #475569; /* Clean slate tone */
   text-align: left;
   vertical-align: middle;
   white-space: nowrap;
   user-select: none;
+  background: transparent;
 }
 
 .dl-table th.sortable {
@@ -782,14 +783,33 @@ body {
 }
 
 .dl-table th.sortable:hover {
-  color: #0284c7;
+  color: #0f172a; /* Deep Geist Ink — stark 14.3:1 contrast (WCAG AAA) */
+}
+
+.dl-table th.sortable:hover .sort-arrow {
+  color: #0f172a;
+  opacity: 1;
+  transform: translateY(-1px);
+}
+
+.dl-table th.sortable.active-sort {
+  color: #0f172a;
+  font-weight: 700;
+}
+
+.dl-table th.sortable.active-sort .sort-arrow {
+  color: #0f172a;
+  font-weight: 800;
+  opacity: 1;
 }
 
 .sort-arrow {
+  display: inline-block;
   font-size: 11px;
-  color: #475569;
-  opacity: 1;
-  margin-left: 3px;
+  color: #64748b;
+  opacity: 0.7;
+  margin-left: 4px;
+  transition: color var(--transition-fast), opacity var(--transition-fast), transform var(--transition-fast);
 }
 
 .dl-table td {
@@ -1650,14 +1670,28 @@ th.sortable-hist {
   cursor: pointer;
   user-select: none;
   transition: color var(--transition-fast);
+  background: transparent;
 }
 
 th.sortable-hist:hover {
-  color: var(--text-primary);
+  color: #0f172a;
+}
+
+th.sortable-hist:hover .sort-arrow {
+  color: #0f172a;
+  opacity: 1;
+  transform: translateY(-1px);
 }
 
 th.sortable-hist.active-sort {
-  color: var(--text-primary);
+  color: #0f172a;
+  font-weight: 700;
+}
+
+th.sortable-hist.active-sort .sort-arrow {
+  color: #0f172a;
+  font-weight: 800;
+  opacity: 1;
 }
 
 /* History empty state */

@@ -53,7 +53,7 @@ export default defineConfig({
         const root = import.meta.dirname;
         const dist = resolve(root, 'dist');
         
-        let version = '1.0.0';
+        let version = '1.0.1';
         try {
           const pkg = JSON.parse(fs.readFileSync(resolve(root, 'package.json'), 'utf-8'));
           if (pkg.version) version = pkg.version;
@@ -62,7 +62,6 @@ export default defineConfig({
         }
 
         const versionedZipFile = resolve(root, `all-downloader-v${version}.zip`);
-        const legacyZipFile = resolve(root, 'all-downloader.zip');
 
         // 1. Copy manifest.json
         if (fs.existsSync('manifest.json')) {
@@ -105,10 +104,18 @@ export default defineConfig({
           fs.cpSync('_locales', resolve(dist, '_locales'), { recursive: true });
         }
 
-        // 4. Generate versioned distribution zip (and copy to legacy name)
-        if (fs.existsSync(versionedZipFile)) fs.rmSync(versionedZipFile);
-        if (fs.existsSync(legacyZipFile)) fs.rmSync(legacyZipFile);
+        // 4. Clean up any previous / legacy zip archives in root
+        try {
+          for (const file of fs.readdirSync(root)) {
+            if (file.startsWith('all-downloader') && file.endsWith('.zip')) {
+              fs.rmSync(resolve(root, file), { force: true });
+            }
+          }
+        } catch {
+          /* fallback */
+        }
 
+        // 5. Generate single versioned distribution zip
         try {
           const distNorm = dist.replace(/\\/g, '/');
           const zipNorm = versionedZipFile.replace(/\\/g, '/');
@@ -121,8 +128,7 @@ export default defineConfig({
             );
           }
           if (fs.existsSync(versionedZipFile)) {
-            fs.copyFileSync(versionedZipFile, legacyZipFile);
-            console.log(`[Vite Packager] Generated CWS distribution archive: all-downloader-v${version}.zip`);
+            console.log(`[Vite Packager] Generated distribution archive: all-downloader-v${version}.zip`);
           }
         } catch (e) {
           console.warn('[Vite Packager] Could not create zip archive:', e);
