@@ -47,6 +47,8 @@ export async function handleMessage(
       const ids = coordinator.queue.clear();
       for (const id of ids) {
         await cancelDownload(id);
+        coordinator.cleanupPending(id);
+        coordinator.queue.remove(id);
         await coordinator.updateState(id, DOWNLOAD_STATE.CANCELLED as DownloadState);
         broadcastMessage({ type: MSG.DOWNLOAD_CANCELLED, id });
       }

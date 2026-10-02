@@ -90,9 +90,12 @@ export async function loadDownloads(): Promise<Record<string, DownloadItem>> {
 /** Internal atomic flush to chrome.storage.local */
 async function flushDownloadsToStorage(): Promise<void> {
   if (!inMemoryDownloads) return;
-  const snapshot = { ...inMemoryDownloads };
   saveDownloadsPromise = saveDownloadsPromise
-    .then(() => storageSet({ [STORAGE_KEY.DOWNLOADS]: snapshot }))
+    .then(async () => {
+      if (!inMemoryDownloads) return;
+      const snapshot = { ...inMemoryDownloads };
+      await storageSet({ [STORAGE_KEY.DOWNLOADS]: snapshot });
+    })
     .catch((err) => console.error('[ADL Storage] Error writing downloads to storage:', err));
   await saveDownloadsPromise;
 }

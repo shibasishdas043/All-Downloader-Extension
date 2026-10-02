@@ -101,6 +101,43 @@ export class DownloadCoordinator {
     extra: Record<string, any> = {}
   ): Promise<DownloadItem> {
     const dl = this.downloadCache.get(id) || await getDownload(id) || {} as any;
+    const currentStatus = (dl.status || dl.state) as DownloadState | undefined;
+
+    // Strict State Transition Guard:
+    // Prevent stale in-flight events (progress, meta, late merge callbacks) from reviving
+    // terminal or paused downloads back into active downloading/connecting states.
+    if (currentStatus) {
+      const activeStates: DownloadState[] = [
+        DOWNLOAD_STATE.DOWNLOADING as DownloadState,
+        DOWNLOAD_STATE.CONNECTING as DownloadState,
+        DOWNLOAD_STATE.MERGING as DownloadState,
+        DOWNLOAD_STATE.VERIFYING as DownloadState,
+      ];
+      const isTryingToActivate = activeStates.includes(state);
+
+      if (currentStatus === DOWNLOAD_STATE.CANCELLED) {
+        // A cancelled download can only be revived by an explicit user RETRY (which sets QUEUED or CONNECTING via message router)
+        // or re-cancelled/deleted. Stale DOWNLOADING/CONNECTING/MERGING/VERIFYING events from previous run MUST be ignored.
+        const isUserRevival = (state === DOWNLOAD_STATE.QUEUED || state === DOWNLOAD_STATE.CONNECTING) &&
+          (extra.receivedBytes === 0 || extra.percent === 0);
+        if (isTryingToActivate && !isUserRevival) {
+          return dl;
+        }
+      } else if (currentStatus === DOWNLOAD_STATE.PAUSED) {
+        // A paused download can only become QUEUED or CONNECTING (via RESUME/RETRY) or CANCELLED/ERROR
+        if (isTryingToActivate && state !== DOWNLOAD_STATE.CONNECTING) {
+          return dl;
+        }
+      } else if (currentStatus === DOWNLOAD_STATE.COMPLETED) {
+        // A completed download cannot transition to downloading/connecting/merging unless explicitly re-tried
+        const isUserRetry = (state === DOWNLOAD_STATE.QUEUED || state === DOWNLOAD_STATE.CONNECTING) &&
+          (extra.receivedBytes === 0 || extra.percent === 0);
+        if (isTryingToActivate && !isUserRetry) {
+          return dl;
+        }
+      }
+    }
+
     const updated: DownloadItem = {
       ...dl,
       id,
@@ -172,6 +209,12 @@ export class DownloadCoordinator {
     const dl = await getDownload(downloadId);
     if (!dl) { this.queue.markDone(downloadId); return; }
 
+    const st = dl.status || (dl as any).state;
+    if (st === DOWNLOAD_STATE.CANCELLED || st === DOWNLOAD_STATE.PAUSED || st === DOWNLOAD_STATE.COMPLETED) {
+      this.queue.markDone(downloadId);
+      return;
+    }
+
     // If chunks are already 100% downloaded in local storage and waiting to be saved to disk
     if ((dl as any).isReadyToSave && (dl.filesize || dl.receivedBytes)) {
       await this.saveExistingDownloadToDisk(dl);
@@ -190,6 +233,17 @@ export class DownloadCoordinator {
       dl,
       this.settings,
       async (id, received, total, speedSnap, segments) => {
+        const cur = this.downloadCache.get(id);
+        const curStatus = (cur?.status || (cur as any)?.state);
+        if (
+          curStatus === DOWNLOAD_STATE.CANCELLED ||
+          curStatus === DOWNLOAD_STATE.PAUSED ||
+          curStatus === DOWNLOAD_STATE.COMPLETED ||
+          curStatus === DOWNLOAD_STATE.ERROR
+        ) {
+          return;
+        }
+
         const percent = calcPercent(received, total);
         const update: Record<string, any> = {
           state: DOWNLOAD_STATE.DOWNLOADING,
@@ -213,6 +267,16 @@ export class DownloadCoordinator {
         broadcastMessage({ type: MSG.DOWNLOAD_PROGRESS, id, ...update });
       },
       async (id, result, finalFilename) => {
+        const cur = this.downloadCache.get(id);
+        const curStatus = (cur?.status || (cur as any)?.state);
+        if (
+          curStatus === DOWNLOAD_STATE.CANCELLED ||
+          curStatus === DOWNLOAD_STATE.PAUSED ||
+          curStatus === DOWNLOAD_STATE.COMPLETED
+        ) {
+          return;
+        }
+
         try {
           const actualSize = result.totalSize || (dl as any).filesize || (dl as any).total || 0;
           const shouldVerify = Boolean(this.settings.verifyIntegrity);
@@ -355,6 +419,17 @@ export class DownloadCoordinator {
         }
       },
       async (id, errorMsg) => {
+        const cur = this.downloadCache.get(id);
+        const curStatus = (cur?.status || (cur as any)?.state);
+        if (
+          curStatus === DOWNLOAD_STATE.CANCELLED ||
+          curStatus === DOWNLOAD_STATE.PAUSED ||
+          curStatus === DOWNLOAD_STATE.COMPLETED
+        ) {
+          this.queue.markDone(id);
+          return;
+        }
+
         await this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
           error: errorMsg,
           errorMessage: errorMsg,
@@ -363,6 +438,17 @@ export class DownloadCoordinator {
         broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id, error: errorMsg });
       },
       async (meta) => {
+        const cur = this.downloadCache.get(downloadId);
+        const curStatus = (cur?.status || (cur as any)?.state);
+        if (
+          curStatus === DOWNLOAD_STATE.CANCELLED ||
+          curStatus === DOWNLOAD_STATE.PAUSED ||
+          curStatus === DOWNLOAD_STATE.COMPLETED ||
+          curStatus === DOWNLOAD_STATE.ERROR
+        ) {
+          return;
+        }
+
         // Server response headers arrived — resolve dynamic filename, MIME type, and category!
         const detectedCat = detectCategory(meta.filename, meta.mimeType);
         const updates: Record<string, any> = {
@@ -518,6 +604,16 @@ export class DownloadCoordinator {
     for (const dl of Object.values(all)) {
       this.downloadCache.set(dl.id, dl);
       const st = dl.status || (dl as any).state;
+
+      // Completed, cancelled, and paused downloads must remain in their saved terminal/paused states.
+      if (
+        st === DOWNLOAD_STATE.CANCELLED ||
+        st === DOWNLOAD_STATE.PAUSED ||
+        st === DOWNLOAD_STATE.COMPLETED ||
+        st === DOWNLOAD_STATE.ERROR
+      ) {
+        continue;
+      }
 
       if (st === 'downloading' || st === 'connecting' || st === 'queued') {
         await this.updateState(dl.id, DOWNLOAD_STATE.QUEUED as DownloadState, { speed: 0, eta: null });
@@ -731,6 +827,12 @@ export class DownloadCoordinator {
 
   public cleanupPending(downloadId: string): void {
     cleanupPendingChromeDownload(downloadId, this.pendingChromeDownloads);
+    for (const [blobUrl, saveInfo] of this.pendingBlobSaves.entries()) {
+      if (saveInfo.id === downloadId) {
+        this.pendingBlobSaves.delete(blobUrl);
+        revokeBlobUrl(blobUrl);
+      }
+    }
   }
 
   public clearFinishedDownloads(): void {

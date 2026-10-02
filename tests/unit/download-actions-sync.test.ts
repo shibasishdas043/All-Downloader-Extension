@@ -129,4 +129,81 @@ describe('Download Actions & Button Synchronization', () => {
     expect(actions.showResume).toBe(true);
     expect(actions.resumeTitle).toBe('Start');
   });
+
+  test('Cancelled download remains strictly un-enqueued and ignored on browser reopen', () => {
+    // Simulate browser restart / restoreInProgressDownloads filtering
+    const savedDownloads: Record<string, { id: string; status: string }> = {
+      'dl-1': { id: 'dl-1', status: DOWNLOAD_STATE.CANCELLED },
+      'dl-2': { id: 'dl-2', status: DOWNLOAD_STATE.PAUSED },
+      'dl-3': { id: 'dl-3', status: DOWNLOAD_STATE.COMPLETED },
+      'dl-4': { id: 'dl-4', status: DOWNLOAD_STATE.ERROR },
+      'dl-5': { id: 'dl-5', status: DOWNLOAD_STATE.DOWNLOADING },
+      'dl-6': { id: 'dl-6', status: DOWNLOAD_STATE.QUEUED },
+    };
+
+    const restoredQueue: string[] = [];
+    for (const dl of Object.values(savedDownloads)) {
+      const st = dl.status;
+      if (
+        st === DOWNLOAD_STATE.CANCELLED ||
+        st === DOWNLOAD_STATE.PAUSED ||
+        st === DOWNLOAD_STATE.COMPLETED ||
+        st === DOWNLOAD_STATE.ERROR
+      ) {
+        continue;
+      }
+
+      if (st === 'downloading' || st === 'connecting' || st === 'queued') {
+        restoredQueue.push(dl.id);
+      }
+    }
+
+    // Only dl-5 and dl-6 should be restored to queue; cancelled, paused, and completed items NEVER restart
+    expect(restoredQueue).toEqual(['dl-5', 'dl-6']);
+    expect(restoredQueue.includes('dl-1')).toBe(false);
+    expect(restoredQueue.includes('dl-2')).toBe(false);
+    expect(restoredQueue.includes('dl-3')).toBe(false);
+  });
+
+  test('Late progress events cannot resurrect CANCELLED state back to DOWNLOADING', () => {
+    // Model state transition guard
+    function simulateUpdateState(
+      currentStatus: string,
+      targetState: string,
+      extra: Record<string, any> = {}
+    ): string {
+      const activeStates = [
+        DOWNLOAD_STATE.DOWNLOADING,
+        DOWNLOAD_STATE.CONNECTING,
+        DOWNLOAD_STATE.MERGING,
+        DOWNLOAD_STATE.VERIFYING,
+      ];
+      const isTryingToActivate = activeStates.includes(targetState as any);
+
+      if (currentStatus === DOWNLOAD_STATE.CANCELLED) {
+        const isUserRevival =
+          (targetState === DOWNLOAD_STATE.QUEUED || targetState === DOWNLOAD_STATE.CONNECTING) &&
+          (extra.receivedBytes === 0 || extra.percent === 0);
+        if (isTryingToActivate && !isUserRevival) {
+          return currentStatus; // Ignored / rejected
+        }
+      }
+      return targetState;
+    }
+
+    // 1. Download was cancelled by user
+    const state = DOWNLOAD_STATE.CANCELLED;
+
+    // 2. Late progress event arrives from chunk reader
+    const afterLateProgress = simulateUpdateState(state, DOWNLOAD_STATE.DOWNLOADING, { receivedBytes: 5000 });
+    expect(afterLateProgress).toBe(DOWNLOAD_STATE.CANCELLED);
+
+    // 3. Late connecting event arrives
+    const afterLateConnecting = simulateUpdateState(state, DOWNLOAD_STATE.CONNECTING, { receivedBytes: 5000 });
+    expect(afterLateConnecting).toBe(DOWNLOAD_STATE.CANCELLED);
+
+    // 4. Legitimate retry arrives
+    const afterUserRetry = simulateUpdateState(state, DOWNLOAD_STATE.CONNECTING, { receivedBytes: 0, percent: 0 });
+    expect(afterUserRetry).toBe(DOWNLOAD_STATE.CONNECTING);
+  });
 });
