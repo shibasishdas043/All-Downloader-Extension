@@ -76,12 +76,13 @@ export function flushProgressUpdates(): void {
     if (refs.fill) refs.fill.style.width = `${dl.percent || 0}%`;
     if (refs.label) refs.label.textContent = `${dl.percent || 0}%`;
     if (refs.sizeCell) refs.sizeCell.innerHTML = formatSizeDisplay(dl);
-    if (refs.speed) refs.speed.textContent = dl.state === DOWNLOAD_STATE.DOWNLOADING ? formatSpeed(dl.speed) : '—';
+    if (refs.speed) refs.speed.textContent = dl.autoReconnecting ? 'Reconnecting…' : (dl.state === DOWNLOAD_STATE.DOWNLOADING ? formatSpeed(dl.speed) : '—');
     if (refs.eta) refs.eta.innerHTML = formatETADisplay(dl);
 
-    if (refs.statusCol && refs.statusCol.dataset.state !== dl.state) {
+    if (refs.statusCol && (refs.statusCol.dataset.state !== dl.state || (refs.statusCol.dataset as any).reconnecting !== String(Boolean(dl.autoReconnecting)))) {
       refs.statusCol.dataset.state = dl.state;
-      refs.statusCol.innerHTML = buildStateBadge(dl.state);
+      (refs.statusCol.dataset as any).reconnecting = String(Boolean(dl.autoReconnecting));
+      refs.statusCol.innerHTML = buildStateBadge(dl.state, dl);
       refs.tr.dataset.state = dl.state;
       const actionsWrap = (refs as any).actionsWrap || refs.tr.querySelector('.row-actions');
       if (actionsWrap) {
@@ -107,6 +108,9 @@ export function flushProgressUpdates(): void {
 export function buildStateBadge(dlState: string, dl?: any): string {
   if (dl?.isReadyToSave) {
     return `<span class="status-badge ready-save"><span class="status-dot"></span>Ready to Save</span>`;
+  }
+  if (dl?.autoReconnecting) {
+    return `<span class="status-badge reconnecting"><span class="status-dot"></span>Reconnecting…</span>`;
   }
   const labels: Record<string, string> = {
     [DOWNLOAD_STATE.DOWNLOADING]: 'Active',

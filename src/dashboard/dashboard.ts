@@ -89,6 +89,18 @@ export function handleSWMessage(msg: any): void {
       }
       break;
 
+    case MSG.DOWNLOAD_AUTO_RETRY:
+      if (state.downloads[msg.id]) {
+        (state.downloads[msg.id] as any).autoReconnecting = true;
+        state.downloads[msg.id].errorMessage = msg.errorMessage || `Connection lost — reconnecting (${msg.attempt}/5)…`;
+        if (state.currentView === 'downloads') {
+          updateTableRowState(msg.id);
+          updateSidebarStats();
+          updateBadges();
+        }
+      }
+      break;
+
     case MSG.DOWNLOAD_PROGRESS:
       if (!state.downloads[msg.id]) {
         state.downloads[msg.id] = {
@@ -102,6 +114,7 @@ export function handleSWMessage(msg: any): void {
         };
         if (state.currentView === 'downloads') renderDownloadsTable();
       } else {
+        (state.downloads[msg.id] as any).autoReconnecting = false;
         const prevState = state.downloads[msg.id].state;
         const nextState = msg.state || DOWNLOAD_STATE.DOWNLOADING;
         Object.assign(state.downloads[msg.id], {

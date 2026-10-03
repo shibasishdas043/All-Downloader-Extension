@@ -153,6 +153,10 @@ export function populateItem(el: HTMLElement, dl: any): void {
     speedEl.textContent = 'Ready to Save';
     pctEl.textContent   = '100%';
     etaEl.textContent   = '';
+  } else if ((dl as any).autoReconnecting) {
+    speedEl.textContent = 'Reconnecting…';
+    pctEl.textContent   = `${pct}%`;
+    etaEl.textContent   = '';
   } else if (st === DOWNLOAD_STATE.DOWNLOADING) {
     speedEl.textContent = formatSpeed(dl.speed);
     pctEl.textContent   = `${pct}%`;
@@ -163,7 +167,8 @@ export function populateItem(el: HTMLElement, dl: any): void {
     etaEl.textContent   = '';
   }
 
-  speedEl.classList.toggle('fast', (dl.speed || 0) > 1024 * 1024);
+  speedEl.classList.toggle('reconnecting', Boolean((dl as any).autoReconnecting));
+  speedEl.classList.toggle('fast', !Boolean((dl as any).autoReconnecting) && (dl.speed || 0) > 1024 * 1024);
 
   const isReadySave = Boolean(dl.isReadyToSave);
   const needsCancel = !isReadySave && [

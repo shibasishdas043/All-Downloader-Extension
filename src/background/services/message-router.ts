@@ -72,8 +72,11 @@ export async function handleMessage(
       const dl = await getDownload(msg.id);
       const state = dl?.status || (dl as any)?.state;
       if (!dl || (state !== DOWNLOAD_STATE.DOWNLOADING && state !== DOWNLOAD_STATE.CONNECTING)) return { ok: false };
+      coordinator.autoRetryBudget.delete(msg.id);
       pauseDownload(msg.id);
-      await coordinator.updateState(msg.id, DOWNLOAD_STATE.PAUSED as DownloadState);
+      await coordinator.updateState(msg.id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+        autoReconnecting: false,
+      } as any);
       coordinator.queue.markDone(msg.id);
       broadcastMessage({ type: MSG.DOWNLOAD_PAUSED, id: msg.id });
       return { ok: true };
@@ -91,11 +94,13 @@ export async function handleMessage(
     }
 
     case MSG.CANCEL_DOWNLOAD: {
+      coordinator.autoRetryBudget.delete(msg.id);
       coordinator.queue.remove(msg.id);
       await coordinator.updateState(msg.id, DOWNLOAD_STATE.CANCELLED as DownloadState, {
         speed: 0,
         eta: null,
-      });
+        autoReconnecting: false,
+      } as any);
       broadcastMessage({ type: MSG.DOWNLOAD_CANCELLED, id: msg.id });
       try {
         await cancelDownload(msg.id);

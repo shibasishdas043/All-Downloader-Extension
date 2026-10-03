@@ -90,8 +90,18 @@ export function handleSWMessage(msg: any): void {
       }
       break;
 
+    case MSG.DOWNLOAD_AUTO_RETRY:
+      if (downloads[msg.id]) {
+        (downloads[msg.id] as any).autoReconnecting = true;
+        downloads[msg.id].errorMessage = msg.errorMessage || `Connection lost — reconnecting (${msg.attempt}/5)…`;
+        updateItem(msg.id);
+        updateStatusBar();
+      }
+      break;
+
     case MSG.DOWNLOAD_PROGRESS:
       if (downloads[msg.id]) {
+        (downloads[msg.id] as any).autoReconnecting = false;
         const curState = downloads[msg.id].state || downloads[msg.id].status;
         if ([DOWNLOAD_STATE.CANCELLED, DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.PAUSED].includes(curState)) {
           return;

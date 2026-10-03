@@ -523,6 +523,12 @@ body {
   font-weight: 700;
 }
 
+.dl-speed.reconnecting {
+  color: #d97706;
+  font-weight: 700;
+  animation: blinkBadge 1.2s ease-in-out infinite;
+}
+
 .dl-progress-right {
   display: flex;
   align-items: center;

@@ -77,6 +77,27 @@ export class DownloadCoordinator {
   public rightClickDetector = new RightClickDetector();
   public queue: QueueManager;
   public rateLimiter: RateLimiter;
+  public autoRetryBudget = new Map<string, number>();
+  public static readonly MAX_AUTO_RETRIES = 5;
+  public static readonly AUTO_RETRY_DELAYS = [3_000, 8_000, 20_000, 60_000, 120_000];
+
+  public isNetworkError(msg: string): boolean {
+    if (!msg) return false;
+    const m = msg.toLowerCase();
+    return (
+      m.includes('network') ||
+      m.includes('fetch') ||
+      m.includes('failed to fetch') ||
+      m.includes('stall') ||
+      m.includes('timeout') ||
+      m.includes('connection') ||
+      m.includes('econnreset') ||
+      m.includes('socket') ||
+      m.includes('etimedout') ||
+      m.includes('silence') ||
+      m.includes('abort')
+    );
+  }
 
   constructor(settings: ExtensionSettings) {
     this.settings = settings;
@@ -266,6 +287,7 @@ export class DownloadCoordinator {
         broadcastMessage({ type: MSG.DOWNLOAD_PROGRESS, id, ...update });
       },
       async (id, result, finalFilename) => {
+        this.autoRetryBudget.delete(id);
         const cur = this.downloadCache.get(id);
         const curStatus = (cur?.status || (cur as any)?.state);
         if (
@@ -475,10 +497,42 @@ export class DownloadCoordinator {
           return;
         }
 
+        const budget = this.autoRetryBudget.get(id) ?? 0;
+        if (this.isNetworkError(errorMsg) && budget < DownloadCoordinator.MAX_AUTO_RETRIES) {
+          this.autoRetryBudget.set(id, budget + 1);
+          const delay = DownloadCoordinator.AUTO_RETRY_DELAYS[budget];
+          const attempt = budget + 1;
+          await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+            error: null,
+            errorMessage: `Connection lost — reconnecting in ${delay / 1000}s (${attempt}/5)…`,
+            autoReconnecting: true,
+          } as any);
+          this.queue.markDone(id);
+          broadcastMessage({
+            type: MSG.DOWNLOAD_AUTO_RETRY,
+            id,
+            attempt,
+            delayMs: delay,
+            errorMessage: `Connection lost — reconnecting in ${delay / 1000}s (${attempt}/5)…`,
+          });
+          setTimeout(async () => {
+            const current = this.downloadCache.get(id);
+            if ((current as any)?.autoReconnecting) {
+              await this.updateState(id, DOWNLOAD_STATE.CONNECTING as DownloadState, {
+                errorMessage: `Reconnecting (${attempt}/5)…`,
+              } as any);
+              this.queue.enqueue(id);
+            }
+          }, delay);
+          return;
+        }
+
+        this.autoRetryBudget.delete(id);
         await this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
           error: errorMsg,
           errorMessage: errorMsg,
-        });
+          autoReconnecting: false,
+        } as any);
         this.queue.markDone(id);
         broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id, error: errorMsg });
       },
