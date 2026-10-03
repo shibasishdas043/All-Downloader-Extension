@@ -425,6 +425,38 @@ body {
   color: #ffffff;
 }
 
+.ctrl-save-disk {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+  animation: pulseReadyToSave 2s infinite ease-in-out;
+}
+
+.ctrl-save-disk:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.5);
+  transform: scale(1.12);
+}
+
+.ctrl-save-disk.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.dl-status-text.ready-save {
+  color: #059669;
+  font-weight: 700;
+}
+
+@keyframes pulseReadyToSave {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(16, 185, 129, 0);
+  }
+}
+
 .hidden {
   display: none !important;
 }

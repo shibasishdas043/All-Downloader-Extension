@@ -107,10 +107,29 @@ export async function handleMessage(
       return { ok: true };
     }
 
+    case MSG.DIRECT_SAVE_COMPLETED: {
+      const updated = await coordinator.handleDirectSaveCompleted(msg.id, msg.size, msg.filename);
+      return { ok: Boolean(updated) };
+    }
+
     case MSG.RETRY_DOWNLOAD: {
       const dl = await getDownload(msg.id);
       if (!dl) return { ok: false };
       const nextState = coordinator.queue.hasFreeSlot() ? DOWNLOAD_STATE.CONNECTING : DOWNLOAD_STATE.QUEUED;
+
+      if ((dl as any).isReadyToSave) {
+        // Chunks are already 100% saved in storage! Do not wipe received bytes to 0!
+        const updated = await coordinator.updateState(msg.id, nextState as DownloadState, {
+          errorMessage: null,
+          error: null,
+          speed: 0,
+          eta: null,
+        } as any);
+        coordinator.queue.enqueue(msg.id);
+        broadcastMessage({ type: MSG.DOWNLOAD_RESUMED, id: msg.id, download: updated });
+        return { ok: true };
+      }
+
       const updated = await coordinator.updateState(msg.id, nextState as DownloadState, {
         errorMessage: null,
         error: null,

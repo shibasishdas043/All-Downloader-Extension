@@ -20,6 +20,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true; // Keep message channel open for async response
   }
 
+  if (message?.type === MSG.OFFSCREEN_DOWNLOAD_DIRECT) {
+    handleDirectDownload(message)
+      .then((res) => sendResponse(res))
+      .catch((err) => {
+        console.error('[ADL Offscreen] Direct download failed:', err);
+        sendResponse({ success: false, error: err?.message || String(err) });
+      });
+    return true;
+  }
+
   if (message?.type === MSG.OFFSCREEN_REVOKE_BLOB_URL) {
     if (message.blobUrl) {
       try {
@@ -35,6 +45,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   return false;
 });
+
+async function handleDirectDownload(params: {
+  downloadId: string;
+  chunkCount: number;
+  filename: string;
+  mimeType?: string;
+}): Promise<{ success: boolean; blobUrl: string }> {
+  const { downloadId, chunkCount, filename, mimeType } = params;
+  const res = await handleCreateBlobUrl({ downloadId, chunkCount, mimeType, verifyHash: false });
+  const a = document.createElement('a');
+  a.href = res.blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  return { success: true, blobUrl: res.blobUrl };
+}
 
 async function handleCreateBlobUrl(params: {
   downloadId: string;

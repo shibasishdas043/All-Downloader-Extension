@@ -7,7 +7,7 @@ import { downloads, setDownload, getAllDownloads } from './state.js';
 import {
   pauseDl, resumeDl, cancelDl, deleteDl,
   showInFolder, retryDl, pauseAll,
-  startManualDownload, openDashboard
+  startManualDownload, openDashboard, saveDlToDisk
 } from './actions.js';
 import { renderAll, updateItem, updateStatusBar, togglePopupChunkDrawer } from './renderer.js';
 
@@ -23,6 +23,7 @@ export function bindEvents(): void {
       const id = item.dataset.id;
       if (!id) return;
 
+      if (btn.classList.contains('ctrl-save-disk')) saveDlToDisk(id, btn as HTMLButtonElement);
       if (btn.classList.contains('ctrl-pause'))  pauseDl(id);
       if (btn.classList.contains('ctrl-resume')) resumeDl(id);
       if (btn.classList.contains('ctrl-cancel')) cancelDl(id);
@@ -122,9 +123,16 @@ export function handleSWMessage(msg: any): void {
     case MSG.DOWNLOAD_CANCELLED:
     case MSG.DOWNLOAD_ERROR:
       if (downloads[msg.id]) {
+        if (msg.isReadyToSave !== undefined) {
+          downloads[msg.id].isReadyToSave = msg.isReadyToSave;
+        }
+        if (msg.download) {
+          Object.assign(downloads[msg.id], msg.download);
+        }
         if (msg.type === MSG.DOWNLOAD_COMPLETED) {
           downloads[msg.id].state = DOWNLOAD_STATE.COMPLETED;
           downloads[msg.id].status = DOWNLOAD_STATE.COMPLETED;
+          downloads[msg.id].isReadyToSave = false;
           const sz = msg.total || msg.filesize || msg.received || msg.receivedBytes;
           if (sz) {
             downloads[msg.id].total = sz;
@@ -135,13 +143,14 @@ export function handleSWMessage(msg: any): void {
           if (msg.filename) {
             downloads[msg.id].filename = msg.filename;
           }
-          if (msg.download) {
-            Object.assign(downloads[msg.id], msg.download);
-          }
         }
         if (msg.type === MSG.DOWNLOAD_PAUSED) {
           downloads[msg.id].state = DOWNLOAD_STATE.PAUSED;
           downloads[msg.id].status = DOWNLOAD_STATE.PAUSED;
+          if (msg.isReadyToSave) {
+            downloads[msg.id].percent = 100;
+            downloads[msg.id].progress = 100;
+          }
         }
         if (msg.type === MSG.DOWNLOAD_CANCELLED) {
           downloads[msg.id].state = DOWNLOAD_STATE.CANCELLED;

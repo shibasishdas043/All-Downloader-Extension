@@ -104,7 +104,11 @@ export function populateItem(el: HTMLElement, dl: any): void {
   const st = dl.status || dl.state;
 
   let metaHtml = '';
-  if (st === DOWNLOAD_STATE.COMPLETED) {
+  if (dl.isReadyToSave) {
+    const sizeVal = total > 0 ? total : (received > 0 ? received : (dl.fileSize || dl.filesize || 0));
+    const size = sizeVal > 0 ? formatBytes(sizeVal) : '—';
+    metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text ready-save">Ready to Save</span>`;
+  } else if (st === DOWNLOAD_STATE.COMPLETED) {
     const sizeVal = total > 0 ? total : (received > 0 ? received : (dl.fileSize || dl.filesize || 0));
     const size = sizeVal > 0 ? formatBytes(sizeVal) : '—';
     metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text completed">Completed</span>`;
@@ -127,7 +131,7 @@ export function populateItem(el: HTMLElement, dl: any): void {
 
   (el.querySelector('.dl-meta') as HTMLElement).innerHTML = metaHtml;
 
-  const pct = dl.percent ?? dl.progress ?? 0;
+  const pct = dl.isReadyToSave ? 100 : (dl.percent ?? dl.progress ?? 0);
   (el.querySelector('.dl-progress-fill') as HTMLElement).style.width = `${pct}%`;
 
   const stateBadgeLabels: Record<string, string> = {
@@ -145,7 +149,11 @@ export function populateItem(el: HTMLElement, dl: any): void {
   const pctEl   = el.querySelector('.dl-percent') as HTMLElement;
   const etaEl   = el.querySelector('.dl-eta') as HTMLElement;
 
-  if (st === DOWNLOAD_STATE.DOWNLOADING) {
+  if (dl.isReadyToSave) {
+    speedEl.textContent = 'Ready to Save';
+    pctEl.textContent   = '100%';
+    etaEl.textContent   = '';
+  } else if (st === DOWNLOAD_STATE.DOWNLOADING) {
     speedEl.textContent = formatSpeed(dl.speed);
     pctEl.textContent   = `${pct}%`;
     etaEl.textContent   = dl.eta ? `· ${formatHumanETA(dl.eta)}` : (dl.speed ? '· calculating…' : '');
@@ -157,17 +165,19 @@ export function populateItem(el: HTMLElement, dl: any): void {
 
   speedEl.classList.toggle('fast', (dl.speed || 0) > 1024 * 1024);
 
-  const needsCancel = [
+  const isReadySave = Boolean(dl.isReadyToSave);
+  const needsCancel = !isReadySave && [
     DOWNLOAD_STATE.QUEUED, DOWNLOAD_STATE.CONNECTING,
     DOWNLOAD_STATE.DOWNLOADING, DOWNLOAD_STATE.PAUSED,
     DOWNLOAD_STATE.MERGING, DOWNLOAD_STATE.VERIFYING,
   ].includes(st);
 
   const isCompleted = st === DOWNLOAD_STATE.COMPLETED;
-  const isFailed    = st === DOWNLOAD_STATE.CANCELLED || st === DOWNLOAD_STATE.ERROR;
-  const isActive    = st === DOWNLOAD_STATE.DOWNLOADING || st === DOWNLOAD_STATE.CONNECTING;
-  const isPaused    = st === DOWNLOAD_STATE.PAUSED || st === DOWNLOAD_STATE.QUEUED;
+  const isFailed    = !isReadySave && (st === DOWNLOAD_STATE.CANCELLED || st === DOWNLOAD_STATE.ERROR);
+  const isActive    = !isReadySave && (st === DOWNLOAD_STATE.DOWNLOADING || st === DOWNLOAD_STATE.CONNECTING);
+  const isPaused    = !isReadySave && (st === DOWNLOAD_STATE.PAUSED || st === DOWNLOAD_STATE.QUEUED);
 
+  el.querySelector('.ctrl-save-disk')?.classList.toggle('hidden', !isReadySave);
   el.querySelector('.ctrl-pause')?.classList.toggle('hidden', !isActive);
   el.querySelector('.ctrl-resume')?.classList.toggle('hidden', !isPaused);
   el.querySelector('.ctrl-cancel')?.classList.toggle('hidden', !needsCancel);

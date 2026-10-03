@@ -185,6 +185,10 @@ export async function computeBlobSha256(
     if (onProgress) {
       onProgress(end, total);
     }
+    // Yield every 16MB to allow garbage collection and IPC responsiveness
+    if (offset > 0 && offset % (16 * 1024 * 1024) === 0) {
+      await new Promise((r) => setTimeout(r, 0));
+    }
   }
 
   return hasher.digest();

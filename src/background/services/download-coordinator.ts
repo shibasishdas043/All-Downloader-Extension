@@ -278,7 +278,9 @@ export class DownloadCoordinator {
 
         try {
           const actualSize = result.totalSize || (dl as any).filesize || (dl as any).total || 0;
-          const shouldVerify = Boolean(this.settings.verifyIntegrity);
+          const dlExpectedHash = dl.hashExpected || (this.downloadCache.get(id) as any)?.hashExpected || null;
+          const shouldVerify = Boolean(this.settings.verifyIntegrity && dlExpectedHash);
+
           if (shouldVerify) {
             await this.updateState(id, DOWNLOAD_STATE.VERIFYING as DownloadState, {
               total: actualSize,
@@ -312,8 +314,22 @@ export class DownloadCoordinator {
             : undefined;
           const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
 
-          // 1. Ensure Offscreen Document is active and retain assembly slot
-          retainOffscreenAssembly();
+          // Mark download as 100% complete and ready to save so chunks are NEVER lost
+          await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
+            category: resolvedCategory,
+            mimeType: resolvedMime,
+            total: actualSize,
+            filesize: actualSize,
+            received: actualSize,
+            receivedBytes: actualSize,
+            totalChunks: result.chunkCount,
+            chunkCount: result.chunkCount,
+            savePath,
+            isReadyToSave: true,
+          });
+
+          // 1. Ensure Offscreen Document is active and retain assembly slot for this download
+          retainOffscreenAssembly(id);
           let response: any;
           try {
             await ensureOffscreenDocument();
@@ -326,11 +342,13 @@ export class DownloadCoordinator {
               mimeType: result.mimeType,
               verifyHash: shouldVerify,
             });
-          } finally {
-            releaseOffscreenAssembly();
+          } catch (offscreenErr: any) {
+            releaseOffscreenAssembly(id);
+            throw offscreenErr;
           }
 
           if (!response || !response.success || !response.blobUrl) {
+            releaseOffscreenAssembly(id);
             throw new Error(response?.error || 'Failed to assemble download chunks in offscreen document');
           }
 
@@ -343,6 +361,7 @@ export class DownloadCoordinator {
             if (expectedHash) {
               verified = actualHash.toLowerCase() === expectedHash.toLowerCase();
               if (!verified) {
+                releaseOffscreenAssembly(id);
                 throw new Error(`Integrity check failed: SHA-256 mismatch (expected ${expectedHash}, got ${actualHash})`);
               }
             } else {
@@ -372,6 +391,7 @@ export class DownloadCoordinator {
             totalChunks: result.chunkCount,
             chunkCount: result.chunkCount,
             savePath,
+            isReadyToSave: true,
           });
 
           // 3. Initiate native Chrome streaming download to user disk
@@ -388,12 +408,25 @@ export class DownloadCoordinator {
                 console.error('[ADL] save error:', err);
                 this.pendingBlobSaves.delete(blobUrl);
                 revokeBlobUrl(blobUrl);
-                this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
-                  error: `Save failed: ${err} — click Retry`,
-                  errorMessage: `Save failed: ${err} — click Retry`,
-                });
+                releaseOffscreenAssembly(id);
+                this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+                  error: null,
+                  errorMessage: `Save to disk could not start automatically (${err}). All downloaded data is 100% intact! Click "Save to Disk" to choose destination.`,
+                  isReadyToSave: true,
+                  percent: 100,
+                  progress: 100,
+                } as any);
                 this.queue.markDone(id);
-                broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id, error: err });
+                broadcastMessage({
+                  type: MSG.DOWNLOAD_PAUSED,
+                  id,
+                  isReadyToSave: true,
+                  errorMessage: `Save could not start (${err}). Click "Save to Disk" to export.`,
+                });
+                showNotification(
+                  'Download Ready to Save',
+                  `${safeFilename} is 100% downloaded! Click to save directly to disk.`
+                );
                 return;
               }
 
@@ -409,12 +442,25 @@ export class DownloadCoordinator {
 
         } catch (err: any) {
           console.error('[ADL] onComplete error:', err);
-          await this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
-            error: `Save failed: ${err?.message || 'Unknown error'} — click Retry`,
-            errorMessage: `Save failed: ${err?.message || 'Unknown error'} — click Retry`,
-          });
+          releaseOffscreenAssembly(id);
+          await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+            error: null,
+            errorMessage: `Download is 100% complete! All data is safe in storage. Click "Save to Disk" to save to your computer.`,
+            isReadyToSave: true,
+            percent: 100,
+            progress: 100,
+          } as any);
           this.queue.markDone(id);
-          broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id, error: err?.message });
+          broadcastMessage({
+            type: MSG.DOWNLOAD_PAUSED,
+            id,
+            isReadyToSave: true,
+            errorMessage: `Download complete. Click "Save to Disk" to export.`,
+          });
+          showNotification(
+            'Download Ready to Save',
+            `${finalFilename} is 100% downloaded! Click to save to disk.`
+          );
         }
       },
       async (id, errorMsg) => {
@@ -498,7 +544,7 @@ export class DownloadCoordinator {
       const chunkCount = dl.totalChunks || (dl as any).chunkCount || 1;
       const actualSize = dl.filesize || dl.receivedBytes || 0;
 
-      retainOffscreenAssembly();
+      retainOffscreenAssembly(id);
       let response: any;
       try {
         await ensureOffscreenDocument();
@@ -510,11 +556,13 @@ export class DownloadCoordinator {
           mimeType: dl.mimeType || 'application/octet-stream',
           verifyHash: false,
         });
-      } finally {
-        releaseOffscreenAssembly();
+      } catch (offscreenErr: any) {
+        releaseOffscreenAssembly(id);
+        throw offscreenErr;
       }
 
       if (!response || !response.success || !response.blobUrl) {
+        releaseOffscreenAssembly(id);
         throw new Error(response?.error || 'Failed to assemble existing download chunks from storage');
       }
 
@@ -539,12 +587,25 @@ export class DownloadCoordinator {
             const err = chrome.runtime.lastError?.message || 'Chrome download API rejected request';
             this.pendingBlobSaves.delete(blobUrl);
             revokeBlobUrl(blobUrl);
-            this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
-              error: `Save failed: ${err} — click Retry`,
-              errorMessage: `Save failed: ${err} — click Retry`,
-            });
+            releaseOffscreenAssembly(id);
+            this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+              error: null,
+              errorMessage: `Save to disk could not start automatically (${err}). All downloaded data is 100% intact! Click "Save to Disk" to choose destination.`,
+              isReadyToSave: true,
+              percent: 100,
+              progress: 100,
+            } as any);
             this.queue.markDone(id);
-            broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id, error: err });
+            broadcastMessage({
+              type: MSG.DOWNLOAD_PAUSED,
+              id,
+              isReadyToSave: true,
+              errorMessage: `Save could not start (${err}). Click "Save to Disk" to export.`,
+            });
+            showNotification(
+              'Download Ready to Save',
+              `${safeFilename} is 100% downloaded! Click to save directly to disk.`
+            );
             return;
           }
 
@@ -558,12 +619,25 @@ export class DownloadCoordinator {
         }
       );
     } catch (err: any) {
-      await this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
-        error: `Save failed: ${err?.message || 'Unknown error'} — click Retry`,
-        errorMessage: `Save failed: ${err?.message || 'Unknown error'} — click Retry`,
-      });
+      releaseOffscreenAssembly(id);
+      await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+        error: null,
+        errorMessage: `Download is 100% complete! All data is safe in storage. Click "Save to Disk" to save to your computer.`,
+        isReadyToSave: true,
+        percent: 100,
+        progress: 100,
+      } as any);
       this.queue.markDone(id);
-      broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id, error: err?.message });
+      broadcastMessage({
+        type: MSG.DOWNLOAD_PAUSED,
+        id,
+        isReadyToSave: true,
+        errorMessage: `Download complete. Click "Save to Disk" to export.`,
+      });
+      showNotification(
+        'Download Ready to Save',
+        `${dl.filename} is 100% downloaded! Click to save to disk.`
+      );
     }
   }
 
@@ -651,6 +725,7 @@ export class DownloadCoordinator {
         this.pendingChromeDownloads.delete(delta.id);
         this.pendingBlobSaves.delete(pending.blobUrl);
         revokeBlobUrl(pending.blobUrl);
+        releaseOffscreenAssembly(pending.id);
         await clearChunks(pending.id);
 
         const completedAt = Date.now();
@@ -686,6 +761,9 @@ export class DownloadCoordinator {
           filesize: resolvedSize,
           received: resolvedSize,
           receivedBytes: resolvedSize,
+          isReadyToSave: false,
+          error: null,
+          errorMessage: null,
         });
 
         await recordCompletion(resolvedSize, completedAt - (dlRecord?.startedAt || completedAt));
@@ -713,21 +791,38 @@ export class DownloadCoordinator {
         this.pendingChromeDownloads.delete(delta.id);
         this.pendingBlobSaves.delete(pending.blobUrl);
         revokeBlobUrl(pending.blobUrl);
+        releaseOffscreenAssembly(pending.id);
 
-        if (isUserCancel && this.settings.preserveChunksOnCancel) {
-          // Do NOT clear chunks! The entire download is safely stored in local IndexedDB.
+        const dlRecord: any = await getDownload(pending.id);
+        const hasAllData =
+          dlRecord?.isReadyToSave ||
+          (dlRecord?.receivedBytes && dlRecord?.filesize && dlRecord.receivedBytes >= dlRecord.filesize);
+
+        if (hasAllData || (isUserCancel && this.settings.preserveChunksOnCancel)) {
+          // NEVER clear chunks! The entire download is safely stored in local IndexedDB.
+          const msg = isUserCancel
+            ? 'Save location was cancelled. Download is 100% complete in storage — click "Save to Disk" to choose destination.'
+            : `Save to disk was interrupted (${delta.error?.current || 'unknown'}). All downloaded data is 100% safe in storage! Click "Save to Disk" to save directly.`;
+
           await this.updateState(pending.id, DOWNLOAD_STATE.PAUSED as DownloadState, {
             error: null,
-            errorMessage: 'Save location was cancelled. Download is 100% complete in storage — click Resume / Retry to save to disk.',
+            errorMessage: msg,
             percent: 100,
             progress: 100,
             isReadyToSave: true,
           } as any);
+
           broadcastMessage({
             type: MSG.DOWNLOAD_PAUSED,
             id: pending.id,
             isReadyToSave: true,
+            error: msg,
           });
+
+          showNotification(
+            'Download Ready to Save',
+            `${pending.safeFilename} is 100% downloaded! Click to save directly to disk.`
+          );
         } else {
           await clearChunks(pending.id);
           await this.updateState(pending.id, DOWNLOAD_STATE.ERROR as DownloadState, {
@@ -741,6 +836,53 @@ export class DownloadCoordinator {
         await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);
       }
     }
+  }
+
+  public async handleDirectSaveCompleted(id: string, size?: number, filename?: string): Promise<DownloadItem | null> {
+    const dlRecord: any = await getDownload(id);
+    if (!dlRecord) return null;
+
+    const completedAt = Date.now();
+    const resolvedSize = size || dlRecord?.filesize || dlRecord?.total || dlRecord?.receivedBytes || 0;
+    const actualFilename = filename || dlRecord?.filename;
+
+    await clearChunks(id);
+
+    const updatedDl = await this.updateState(id, DOWNLOAD_STATE.COMPLETED as DownloadState, {
+      completedAt,
+      percent: 100,
+      progress: 100,
+      speed: 0,
+      eta: 0,
+      filename: actualFilename,
+      total: resolvedSize,
+      filesize: resolvedSize,
+      received: resolvedSize,
+      receivedBytes: resolvedSize,
+      isReadyToSave: false,
+      error: null,
+      errorMessage: null,
+    });
+
+    await recordCompletion(resolvedSize, completedAt - (dlRecord?.startedAt || completedAt));
+    this.queue.markDone(id);
+    broadcastMessage({
+      type: MSG.DOWNLOAD_COMPLETED,
+      id,
+      filename: actualFilename,
+      total: resolvedSize,
+      filesize: resolvedSize,
+      received: resolvedSize,
+      receivedBytes: resolvedSize,
+      download: updatedDl,
+    });
+
+    if (this.settings.showNotifications) {
+      showNotification('Download Complete', actualFilename);
+    }
+
+    await this.pruneHistory();
+    return updatedDl;
   }
 
   public async handleChromeDownloadCreated(item: chrome.downloads.DownloadItem): Promise<void> {

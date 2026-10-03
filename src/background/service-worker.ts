@@ -90,7 +90,11 @@ chrome.downloads.onChanged.addListener(async (delta) => {
 
 if (chrome.downloads.onDeterminingFilename) {
   chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-    return coordinator.handleDeterminingFilename(item, suggest);
+    coordinator.handleDeterminingFilename(item, suggest);
+    // Crucial: handleDeterminingFilename calls suggest() synchronously.
+    // Returning true tells Chrome to wait for an asynchronous suggest callback, which stalls
+    // filename confirmation and causes files to be trapped as "Unconfirmed <id>.crdownload".
+    return false;
   });
 }
 
@@ -106,6 +110,12 @@ chrome.contextMenus.onClicked.addListener(async (info) => {
 chrome.commands.onCommand.addListener((command) => {
   if (command === 'open-dashboard') openDashboard();
 });
+
+if (chrome.notifications?.onClicked) {
+  chrome.notifications.onClicked.addListener(() => {
+    openDashboard();
+  });
+}
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (keepAliveGuard.handleAlarm(alarm.name)) return;

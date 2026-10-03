@@ -13,9 +13,11 @@ export interface PendingChromeDownload {
 
 let creatingOffscreenPromise: Promise<void> | null = null;
 let activeAssemblies = 0;
+const activeRetainers = new Set<string>();
 let offscreenCooldownTimer: any = null;
 
-export function retainOffscreenAssembly(): void {
+export function retainOffscreenAssembly(id?: string): void {
+  if (id) activeRetainers.add(id);
   activeAssemblies++;
   if (offscreenCooldownTimer) {
     clearTimeout(offscreenCooldownTimer);
@@ -23,12 +25,13 @@ export function retainOffscreenAssembly(): void {
   }
 }
 
-export function releaseOffscreenAssembly(): void {
+export function releaseOffscreenAssembly(id?: string): void {
+  if (id) activeRetainers.delete(id);
   activeAssemblies = Math.max(0, activeAssemblies - 1);
 }
 
 export function getActiveAssembliesCount(): number {
-  return activeAssemblies;
+  return Math.max(activeAssemblies, activeRetainers.size);
 }
 
 export async function ensureOffscreenDocument(): Promise<void> {
@@ -75,7 +78,7 @@ export async function ensureOffscreenDocument(): Promise<void> {
 }
 
 export async function closeOffscreenDocumentIfIdle(hasPending: boolean): Promise<void> {
-  if (hasPending || activeAssemblies > 0) {
+  if (hasPending || activeAssemblies > 0 || activeRetainers.size > 0) {
     if (offscreenCooldownTimer) {
       clearTimeout(offscreenCooldownTimer);
       offscreenCooldownTimer = null;
@@ -87,7 +90,7 @@ export async function closeOffscreenDocumentIfIdle(hasPending: boolean): Promise
 
   offscreenCooldownTimer = setTimeout(async () => {
     offscreenCooldownTimer = null;
-    if (activeAssemblies > 0) return;
+    if (activeAssemblies > 0 || activeRetainers.size > 0) return;
     try {
       if ('getContexts' in chrome.runtime) {
         const contexts = await (chrome.runtime as any).getContexts({
