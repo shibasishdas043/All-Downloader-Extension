@@ -122,7 +122,7 @@ export async function handleMessage(
       if (!dl) return { ok: false };
       const nextState = coordinator.queue.hasFreeSlot() ? DOWNLOAD_STATE.CONNECTING : DOWNLOAD_STATE.QUEUED;
 
-      if ((dl as any).isReadyToSave) {
+      if ((dl as any).isReadyToSave || (dl.receivedBytes && dl.filesize && dl.receivedBytes >= dl.filesize)) {
         // Chunks are already 100% saved in storage! Do not wipe received bytes to 0!
         const updated = await coordinator.updateState(msg.id, nextState as DownloadState, {
           errorMessage: null,

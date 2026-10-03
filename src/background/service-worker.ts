@@ -90,10 +90,15 @@ chrome.downloads.onChanged.addListener(async (delta) => {
 
 if (chrome.downloads.onDeterminingFilename) {
   chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+    // If this download was initiated by our own extension via chrome.downloads.download,
+    // do NOT re-suggest or override: options.filename and conflictAction were already passed directly.
+    // Re-suggesting on our own blob downloads can cause Chrome to stall filename determination
+    // and trap the file as "Unconfirmed <id>.crdownload".
+    if (item.byExtensionId && item.byExtensionId === chrome.runtime.id) {
+      suggest();
+      return false;
+    }
     coordinator.handleDeterminingFilename(item, suggest);
-    // Crucial: handleDeterminingFilename calls suggest() synchronously.
-    // Returning true tells Chrome to wait for an asynchronous suggest callback, which stalls
-    // filename confirmation and causes files to be trapped as "Unconfirmed <id>.crdownload".
     return false;
   });
 }

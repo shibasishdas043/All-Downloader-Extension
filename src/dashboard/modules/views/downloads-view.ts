@@ -13,7 +13,6 @@ import { escHtml, renderPaginationControls } from '../dom-helpers.js';
 import { getFilteredDownloads } from '../filters.js';
 import { updateSelectAllCheckbox, updateBulkBar } from '../bulk-actions.js';
 import { updateSidebarStats, updateBadges } from '../sidebar.js';
-import { streamChunksToDisk } from '../../../shared/direct-saver.js';
 
 export function formatETADisplay(dl: any): string {
   if (dl.state !== DOWNLOAD_STATE.DOWNLOADING) {
@@ -84,7 +83,7 @@ export function flushProgressUpdates(): void {
       (refs.statusCol.dataset as any).reconnecting = String(Boolean(dl.autoReconnecting));
       refs.statusCol.innerHTML = buildStateBadge(dl.state, dl);
       refs.tr.dataset.state = dl.state;
-      const actionsWrap = (refs as any).actionsWrap || refs.tr.querySelector('.row-actions');
+      const actionsWrap = refs.actionsWrap || refs.tr.querySelector<HTMLElement>('.row-actions');
       if (actionsWrap) {
         actionsWrap.innerHTML = buildRowActions(dl);
       }
@@ -106,9 +105,6 @@ export function flushProgressUpdates(): void {
 }
 
 export function buildStateBadge(dlState: string, dl?: any): string {
-  if (dl?.isReadyToSave) {
-    return `<span class="status-badge ready-save"><span class="status-dot"></span>Ready to Save</span>`;
-  }
   if (dl?.autoReconnecting) {
     return `<span class="status-badge reconnecting"><span class="status-dot"></span>Reconnecting…</span>`;
   }
@@ -127,7 +123,6 @@ export function buildStateBadge(dlState: string, dl?: any): string {
 }
 
 export function buildRowActions(dl: any): string {
-  const isReadyToSave = Boolean(dl.isReadyToSave);
   const isActive = [
     DOWNLOAD_STATE.DOWNLOADING,
     DOWNLOAD_STATE.CONNECTING,
@@ -137,21 +132,15 @@ export function buildRowActions(dl: any): string {
   const isPaused = dl.state === DOWNLOAD_STATE.PAUSED || dl.state === DOWNLOAD_STATE.QUEUED;
   const isError  = dl.state === DOWNLOAD_STATE.ERROR || dl.state === DOWNLOAD_STATE.CANCELLED;
   const isDone   = dl.state === DOWNLOAD_STATE.COMPLETED;
-  const canCancel = (isActive || isPaused) && !isReadyToSave;
+  const canCancel = isActive || isPaused;
 
   let html = '';
-  if (isReadyToSave) {
-    html += `<button class="row-btn row-btn-save-disk primary" data-act="save-disk" data-id="${dl.id}" title="Save directly to disk via File System Stream">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-      <span class="btn-text">Save to Disk</span>
-    </button>`;
-  }
   if (isActive) {
     html += `<button class="row-btn row-btn-pause" data-act="pause" data-id="${dl.id}" title="Pause">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
     </button>`;
   }
-  if (isPaused && !isReadyToSave) {
+  if (isPaused) {
     html += `<button class="row-btn row-btn-resume" data-act="resume" data-id="${dl.id}" title="${dl.state === DOWNLOAD_STATE.QUEUED ? 'Start' : 'Resume'}">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
     </button>`;
@@ -228,13 +217,13 @@ export function buildRow(dl: any, index = 0): HTMLTableRowElement {
   // Retain element references in cache to prevent querySelector layout thrashing during animations
   state.rowCache.set(dl.id, {
     tr,
-    fill: tr.querySelector('.tbl-progress-fill'),
-    label: tr.querySelector('.tbl-progress-label'),
-    sizeCell: tr.querySelector('.col-size'),
-    speed: tr.querySelector('.speed-cell'),
-    eta: tr.querySelector('.col-eta'),
-    statusCol: tr.querySelector('.col-status'),
-    actionsWrap: tr.querySelector('.row-actions'),
+    fill: tr.querySelector<HTMLElement>('.tbl-progress-fill'),
+    label: tr.querySelector<HTMLElement>('.tbl-progress-label'),
+    sizeCell: tr.querySelector<HTMLElement>('.col-size'),
+    speed: tr.querySelector<HTMLElement>('.speed-cell'),
+    eta: tr.querySelector<HTMLElement>('.col-eta'),
+    statusCol: tr.querySelector<HTMLElement>('.col-status'),
+    actionsWrap: tr.querySelector<HTMLElement>('.row-actions'),
   });
 
   return tr;
@@ -257,7 +246,7 @@ export function updateTableRowState(id: string): void {
     if (sizeCell) {
       sizeCell.innerHTML = formatSizeDisplay(dl);
     }
-    const actionsWrap = tr.querySelector('.row-actions');
+    const actionsWrap = tr.querySelector<HTMLElement>('.row-actions');
     if (actionsWrap) {
       actionsWrap.innerHTML = buildRowActions(dl);
     }
@@ -454,58 +443,6 @@ export function bindTableDelegation(): void {
       if (actType === 'retry')  await act(MSG.RETRY_DOWNLOAD,  id);
       if (actType === 'cancel') await act(MSG.CANCEL_DOWNLOAD, id);
       if (actType === 'delete') await act(MSG.DELETE_DOWNLOAD, id);
-
-      if (actType === 'save-disk') {
-        const dl = state.downloads[id];
-        if (!dl) return;
-        const tr = tbody.querySelector(`tr[data-id="${id}"]`);
-        const fill = tr?.querySelector('.tbl-progress-fill') as HTMLElement | null;
-        const label = tr?.querySelector('.tbl-progress-label');
-        const statusCol = tr?.querySelector('.col-status');
-        const oldStatus = statusCol?.innerHTML;
-
-        if (statusCol) {
-          statusCol.innerHTML = `<span class="status-badge merging"><span class="status-dot"></span>Saving…</span>`;
-        }
-
-        const chunkCount = dl.totalChunks || dl.chunkCount || 1;
-        const totalBytes = dl.filesize || dl.receivedBytes || 0;
-
-        btn.classList.add('loading');
-        btn.setAttribute('disabled', 'true');
-
-        try {
-          const res = await streamChunksToDisk(
-            id,
-            dl.filename,
-            chunkCount,
-            totalBytes,
-            dl.mimeType,
-            (_written, _total, pct) => {
-              if (fill) fill.style.width = `${pct}%`;
-              if (label) label.textContent = `Saving ${pct}%`;
-            }
-          );
-
-          if (res.success) {
-            dl.isReadyToSave = false;
-            dl.state = DOWNLOAD_STATE.COMPLETED;
-            updateTableRowState(id);
-          } else if (res.cancelled) {
-            if (statusCol && oldStatus) statusCol.innerHTML = oldStatus;
-          } else {
-            if (statusCol && oldStatus) statusCol.innerHTML = oldStatus;
-            alert(`Could not save file: ${res.error || 'Unknown error'}`);
-          }
-        } catch (err: any) {
-          if (statusCol && oldStatus) statusCol.innerHTML = oldStatus;
-          alert(`Save error: ${err?.message || err}`);
-        } finally {
-          btn.classList.remove('loading');
-          btn.removeAttribute('disabled');
-        }
-        return;
-      }
       return;
     }
 

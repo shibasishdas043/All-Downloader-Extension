@@ -79,11 +79,7 @@ export async function streamChunksToDisk(
       }
 
       if (chunk instanceof Blob) {
-        if (typeof chunk.stream === 'function') {
-          await chunk.stream().pipeTo(writable, { preventClose: true });
-        } else {
-          await writable.write(chunk);
-        }
+        await writable.write(chunk);
         bytesWritten += chunk.size;
       } else if (chunk instanceof ArrayBuffer) {
         await writable.write(chunk);

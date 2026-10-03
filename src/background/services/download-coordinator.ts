@@ -23,6 +23,7 @@ import {
 } from './offscreen-manager.js';
 import { showDownloadStartedToast } from './toast-manager.js';
 import { RightClickDetector, urlsMatch, getFilename } from './right-click-detector.js';
+import { keepAliveGuard } from './keep-alive.js';
 
 export function isHeavyDownload(item: chrome.downloads.DownloadItem): boolean {
   const urlOrFn = item.filename || item.url || '';
@@ -236,7 +237,7 @@ export class DownloadCoordinator {
     }
 
     // If chunks are already 100% downloaded in local storage and waiting to be saved to disk
-    if ((dl as any).isReadyToSave && (dl.filesize || dl.receivedBytes)) {
+    if (((dl as any).isReadyToSave && (dl.filesize || dl.receivedBytes)) || (dl.filesize && dl.receivedBytes && dl.receivedBytes >= dl.filesize)) {
       await this.saveExistingDownloadToDisk(dl);
       return;
     }
@@ -336,7 +337,7 @@ export class DownloadCoordinator {
             : undefined;
           const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
 
-          // Mark download as 100% complete and ready to save so chunks are NEVER lost
+          // Mark download as merging/saving to disk
           await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
             category: resolvedCategory,
             mimeType: resolvedMime,
@@ -347,7 +348,6 @@ export class DownloadCoordinator {
             totalChunks: result.chunkCount,
             chunkCount: result.chunkCount,
             savePath,
-            isReadyToSave: true,
           });
 
           // 1. Ensure Offscreen Document is active and retain assembly slot for this download
@@ -413,7 +413,6 @@ export class DownloadCoordinator {
             totalChunks: result.chunkCount,
             chunkCount: result.chunkCount,
             savePath,
-            isReadyToSave: true,
           });
 
           // 3. Initiate native Chrome streaming download to user disk
@@ -433,8 +432,7 @@ export class DownloadCoordinator {
                 releaseOffscreenAssembly(id);
                 this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
                   error: null,
-                  errorMessage: `Save to disk could not start automatically (${err}). All downloaded data is 100% intact! Click "Save to Disk" to choose destination.`,
-                  isReadyToSave: true,
+                  errorMessage: `Save to disk failed (${err}). Click Resume to retry saving.`,
                   percent: 100,
                   progress: 100,
                 } as any);
@@ -442,16 +440,12 @@ export class DownloadCoordinator {
                 broadcastMessage({
                   type: MSG.DOWNLOAD_PAUSED,
                   id,
-                  isReadyToSave: true,
-                  errorMessage: `Save could not start (${err}). Click "Save to Disk" to export.`,
+                  errorMessage: `Save could not start (${err}). Click Resume to retry.`,
                 });
-                showNotification(
-                  'Download Ready to Save',
-                  `${safeFilename} is 100% downloaded! Click to save directly to disk.`
-                );
                 return;
               }
 
+              keepAliveGuard.retain();
               this.pendingChromeDownloads.set(chromeDlId, {
                 id,
                 blobUrl,
@@ -467,8 +461,7 @@ export class DownloadCoordinator {
           releaseOffscreenAssembly(id);
           await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
             error: null,
-            errorMessage: `Download is 100% complete! All data is safe in storage. Click "Save to Disk" to save to your computer.`,
-            isReadyToSave: true,
+            errorMessage: `Save interrupted: ${err?.message || err}. Click Resume to retry saving.`,
             percent: 100,
             progress: 100,
           } as any);
@@ -476,13 +469,8 @@ export class DownloadCoordinator {
           broadcastMessage({
             type: MSG.DOWNLOAD_PAUSED,
             id,
-            isReadyToSave: true,
-            errorMessage: `Download complete. Click "Save to Disk" to export.`,
+            errorMessage: `Save interrupted. Click Resume to retry.`,
           });
-          showNotification(
-            'Download Ready to Save',
-            `${finalFilename} is 100% downloaded! Click to save to disk.`
-          );
         }
       },
       async (id, errorMsg) => {
@@ -644,8 +632,7 @@ export class DownloadCoordinator {
             releaseOffscreenAssembly(id);
             this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
               error: null,
-              errorMessage: `Save to disk could not start automatically (${err}). All downloaded data is 100% intact! Click "Save to Disk" to choose destination.`,
-              isReadyToSave: true,
+              errorMessage: `Save to disk failed (${err}). Click Resume to retry saving.`,
               percent: 100,
               progress: 100,
             } as any);
@@ -653,16 +640,12 @@ export class DownloadCoordinator {
             broadcastMessage({
               type: MSG.DOWNLOAD_PAUSED,
               id,
-              isReadyToSave: true,
-              errorMessage: `Save could not start (${err}). Click "Save to Disk" to export.`,
+              errorMessage: `Save could not start (${err}). Click Resume to retry.`,
             });
-            showNotification(
-              'Download Ready to Save',
-              `${safeFilename} is 100% downloaded! Click to save directly to disk.`
-            );
             return;
           }
 
+          keepAliveGuard.retain();
           this.pendingChromeDownloads.set(chromeDlId, {
             id,
             blobUrl,
@@ -676,8 +659,7 @@ export class DownloadCoordinator {
       releaseOffscreenAssembly(id);
       await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
         error: null,
-        errorMessage: `Download is 100% complete! All data is safe in storage. Click "Save to Disk" to save to your computer.`,
-        isReadyToSave: true,
+        errorMessage: `Save interrupted: ${err?.message || err}. Click Resume to retry saving.`,
         percent: 100,
         progress: 100,
       } as any);
@@ -685,13 +667,8 @@ export class DownloadCoordinator {
       broadcastMessage({
         type: MSG.DOWNLOAD_PAUSED,
         id,
-        isReadyToSave: true,
-        errorMessage: `Download complete. Click "Save to Disk" to export.`,
+        errorMessage: `Save interrupted. Click Resume to retry.`,
       });
-      showNotification(
-        'Download Ready to Save',
-        `${dl.filename} is 100% downloaded! Click to save to disk.`
-      );
     }
   }
 
@@ -776,6 +753,9 @@ export class DownloadCoordinator {
 
     if (delta.state) {
       if (delta.state.current === 'complete') {
+        if (this.pendingChromeDownloads.has(delta.id)) {
+          keepAliveGuard.release();
+        }
         this.pendingChromeDownloads.delete(delta.id);
         this.pendingBlobSaves.delete(pending.blobUrl);
         revokeBlobUrl(pending.blobUrl);
@@ -841,50 +821,38 @@ export class DownloadCoordinator {
 
         await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);
       } else if (delta.state.current === 'interrupted') {
+        if (this.pendingChromeDownloads.has(delta.id)) {
+          keepAliveGuard.release();
+        }
         const isUserCancel = delta.error?.current === 'USER_CANCELED';
+        console.error('[ADL Save Interrupted Error]:', delta.error?.current, 'Chrome Download ID:', delta.id);
         this.pendingChromeDownloads.delete(delta.id);
         this.pendingBlobSaves.delete(pending.blobUrl);
         revokeBlobUrl(pending.blobUrl);
         releaseOffscreenAssembly(pending.id);
 
-        const dlRecord: any = await getDownload(pending.id);
-        const hasAllData =
-          dlRecord?.isReadyToSave ||
-          (dlRecord?.receivedBytes && dlRecord?.filesize && dlRecord.receivedBytes >= dlRecord.filesize);
+        // All chunks are 100% intact in IndexedDB. Never clear chunks on save failure.
+        const msg = isUserCancel
+          ? 'Save was cancelled. Download is 100% intact — click Resume to retry saving.'
+          : `Save to disk was interrupted (${delta.error?.current || 'unknown'}). Download is 100% intact — click Resume to retry.`;
 
-        if (hasAllData || (isUserCancel && this.settings.preserveChunksOnCancel)) {
-          // NEVER clear chunks! The entire download is safely stored in local IndexedDB.
-          const msg = isUserCancel
-            ? 'Save location was cancelled. Download is 100% complete in storage — click "Save to Disk" to choose destination.'
-            : `Save to disk was interrupted (${delta.error?.current || 'unknown'}). All downloaded data is 100% safe in storage! Click "Save to Disk" to save directly.`;
+        await this.updateState(pending.id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+          error: null,
+          errorMessage: msg,
+          percent: 100,
+          progress: 100,
+        } as any);
 
-          await this.updateState(pending.id, DOWNLOAD_STATE.PAUSED as DownloadState, {
-            error: null,
-            errorMessage: msg,
-            percent: 100,
-            progress: 100,
-            isReadyToSave: true,
-          } as any);
+        broadcastMessage({
+          type: MSG.DOWNLOAD_PAUSED,
+          id: pending.id,
+          error: msg,
+        });
 
-          broadcastMessage({
-            type: MSG.DOWNLOAD_PAUSED,
-            id: pending.id,
-            isReadyToSave: true,
-            error: msg,
-          });
-
-          showNotification(
-            'Download Ready to Save',
-            `${pending.safeFilename} is 100% downloaded! Click to save directly to disk.`
-          );
-        } else {
-          await clearChunks(pending.id);
-          await this.updateState(pending.id, DOWNLOAD_STATE.ERROR as DownloadState, {
-            error: `Chrome download interrupted (${delta.error?.current || 'unknown'}) — click Retry`,
-            errorMessage: `Chrome download interrupted (${delta.error?.current || 'unknown'}) — click Retry`,
-          });
-          broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id: pending.id, error: delta.error?.current });
-        }
+        showNotification(
+          'Save Interrupted',
+          `${pending.safeFilename}: ${msg}`
+        );
 
         this.queue.markDone(pending.id);
         await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);

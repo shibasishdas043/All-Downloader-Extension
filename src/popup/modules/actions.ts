@@ -3,7 +3,6 @@
 // ============================================================
 import { MSG, DOWNLOAD_STATE, UI } from '../../shared/constants.js';
 import { isValidUrl } from '../../shared/utils.js';
-import { streamChunksToDisk } from '../../shared/direct-saver.js';
 import { sendMsg } from './api.js';
 import { downloads, getAllDownloads } from './state.js';
 import { $urlInput, $filenameInput, hideModal, $list, $empty } from './dom.js';
@@ -128,65 +127,4 @@ export async function openDashboard(view: string = 'settings'): Promise<void> {
   // Fallback to background service worker message
   await sendMsg({ type: MSG.OPEN_DASHBOARD, view });
   setTimeout(() => window.close(), 100);
-}
-
-export async function saveDlToDisk(id: string, btn?: HTMLElement): Promise<void> {
-  const dl = downloads[id];
-  if (!dl) return;
-
-  if (btn) {
-    btn.setAttribute('disabled', 'true');
-    btn.classList.add('loading');
-  }
-
-  const chunkCount = dl.totalChunks || dl.chunkCount || 1;
-  const totalBytes = dl.filesize || dl.receivedBytes || 0;
-
-  try {
-    const res = await streamChunksToDisk(
-      id,
-      dl.filename,
-      chunkCount,
-      totalBytes,
-      dl.mimeType,
-      (_written, _total, pct) => {
-        if (downloads[id]) {
-          downloads[id].state = DOWNLOAD_STATE.MERGING;
-          downloads[id].status = DOWNLOAD_STATE.MERGING;
-          downloads[id].percent = pct;
-          downloads[id].progress = pct;
-          updateItem(id);
-        }
-      }
-    );
-
-    if (res.success) {
-      if (downloads[id]) {
-        downloads[id].isReadyToSave = false;
-        downloads[id].state = DOWNLOAD_STATE.COMPLETED;
-        downloads[id].status = DOWNLOAD_STATE.COMPLETED;
-        updateItem(id);
-        updateStatusBar();
-      }
-    } else if (res.cancelled) {
-      if (btn) {
-        btn.removeAttribute('disabled');
-        btn.classList.remove('loading');
-      }
-    } else {
-      console.error('[Popup] Save to disk failed:', res.error);
-      alert(`Save failed: ${res.error}`);
-      if (btn) {
-        btn.removeAttribute('disabled');
-        btn.classList.remove('loading');
-      }
-    }
-  } catch (err: any) {
-    console.error('[Popup] Direct save error:', err);
-    alert(`Save error: ${err?.message || err}`);
-    if (btn) {
-      btn.removeAttribute('disabled');
-      btn.classList.remove('loading');
-    }
-  }
 }

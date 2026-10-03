@@ -7,7 +7,14 @@ import { MSG } from '../shared/constants.js';
 import { loadAllChunks } from '../background/storage.js';
 import { computeBlobSha256 } from '../shared/streaming-sha256.js';
 
-const activeBlobUrls = new Map<string, { downloadId: string; created: number }>();
+interface ActiveBlobRecord {
+  downloadId: string;
+  created: number;
+  blob: Blob;
+  chunks: (ArrayBuffer | Blob)[];
+}
+
+const activeBlobUrls = new Map<string, ActiveBlobRecord>();
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === MSG.OFFSCREEN_CREATE_BLOB_URL) {
@@ -97,7 +104,12 @@ async function handleCreateBlobUrl(params: {
 
   // 4. Create native blob: URL
   const blobUrl = URL.createObjectURL(compositeBlob);
-  activeBlobUrls.set(blobUrl, { downloadId, created: Date.now() });
+  activeBlobUrls.set(blobUrl, {
+    downloadId,
+    created: Date.now(),
+    blob: compositeBlob,
+    chunks,
+  });
 
   return {
     success: true,
