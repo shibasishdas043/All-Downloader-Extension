@@ -415,47 +415,22 @@ export class DownloadCoordinator {
             savePath,
           });
 
-          // 3. Initiate native Chrome streaming download to user disk
-          chrome.downloads.download(
-            {
-              url: blobUrl,
-              filename: savePath,
-              saveAs: false,
-              conflictAction: 'uniquify',
-            },
-            (chromeDlId) => {
-              if (chrome.runtime.lastError || !chromeDlId) {
-                const err = chrome.runtime.lastError?.message || 'Chrome download API rejected request';
-                console.error('[ADL] save error:', err);
-                this.pendingBlobSaves.delete(blobUrl);
-                revokeBlobUrl(blobUrl);
-                releaseOffscreenAssembly(id);
-                this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
-                  error: null,
-                  errorMessage: `Save to disk failed (${err}). Click Resume to retry saving.`,
-                  percent: 100,
-                  progress: 100,
-                } as any);
-                this.queue.markDone(id);
-                broadcastMessage({
-                  type: MSG.DOWNLOAD_PAUSED,
-                  id,
-                  errorMessage: `Save could not start (${err}). Click Resume to retry.`,
-                });
-                return;
+          // 3. Initiate save via chrome.downloads.download() from the service worker.
+          // Using the Downloads API directly (instead of <a>.click() in the offscreen doc) avoids
+          // renderer-process ownership issues with large blob URLs on Windows that cause FILE_TRANSIENT_ERROR.
+          await new Promise<void>((resolve, reject) => {
+            chrome.downloads.download(
+              { url: blobUrl, saveAs: false, conflictAction: 'uniquify' },
+              (downloadId) => {
+                if (chrome.runtime.lastError || !downloadId) {
+                  reject(new Error(chrome.runtime.lastError?.message || 'chrome.downloads.download returned no ID'));
+                } else {
+                  resolve();
+                }
               }
-
-              keepAliveGuard.retain();
-              this.pendingChromeDownloads.set(chromeDlId, {
-                id,
-                blobUrl,
-                safeFilename,
-                fileSize: actualSize,
-                targetSavePath: savePath,
-              });
-            },
-          );
-
+            );
+          });
+          keepAliveGuard.retain();
         } catch (err: any) {
           console.error('[ADL] onComplete error:', err);
           releaseOffscreenAssembly(id);
@@ -587,28 +562,24 @@ export class DownloadCoordinator {
       const actualSize = dl.filesize || dl.receivedBytes || 0;
 
       retainOffscreenAssembly(id);
-      let response: any;
-      try {
-        await ensureOffscreenDocument();
+      await ensureOffscreenDocument();
 
-        response = await chrome.runtime.sendMessage({
-          type: MSG.OFFSCREEN_CREATE_BLOB_URL,
-          downloadId: id,
-          chunkCount,
-          mimeType: dl.mimeType || 'application/octet-stream',
-          verifyHash: false,
-        });
-      } catch (offscreenErr: any) {
-        releaseOffscreenAssembly(id);
-        throw offscreenErr;
-      }
+      // 1. Create the zero-copy blob in the offscreen document
+      const response = await chrome.runtime.sendMessage({
+        type: MSG.OFFSCREEN_CREATE_BLOB_URL,
+        downloadId: id,
+        chunkCount,
+        mimeType: dl.mimeType || 'application/octet-stream',
+        verifyHash: false,
+      });
 
       if (!response || !response.success || !response.blobUrl) {
         releaseOffscreenAssembly(id);
-        throw new Error(response?.error || 'Failed to assemble existing download chunks from storage');
+        throw new Error(response?.error || 'Failed to create blob in offscreen document');
       }
 
       const blobUrl = response.blobUrl;
+      // 2. Pre-register the blob URL in the background service worker BEFORE clicking
       this.ownBlobUrls.add(blobUrl);
       this.pendingBlobSaves.set(blobUrl, {
         id,
@@ -616,50 +587,28 @@ export class DownloadCoordinator {
         safeFilename,
         fileSize: actualSize,
       });
+      keepAliveGuard.retain();
 
-      chrome.downloads.download(
-        {
-          url: blobUrl,
-          filename: savePath,
-          saveAs: false,
-          conflictAction: 'uniquify',
-        },
-        (chromeDlId) => {
-          if (chrome.runtime.lastError || !chromeDlId) {
-            const err = chrome.runtime.lastError?.message || 'Chrome download API rejected request';
-            this.pendingBlobSaves.delete(blobUrl);
-            revokeBlobUrl(blobUrl);
-            releaseOffscreenAssembly(id);
-            this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
-              error: null,
-              errorMessage: `Save to disk failed (${err}). Click Resume to retry saving.`,
-              percent: 100,
-              progress: 100,
-            } as any);
-            this.queue.markDone(id);
-            broadcastMessage({
-              type: MSG.DOWNLOAD_PAUSED,
-              id,
-              errorMessage: `Save could not start (${err}). Click Resume to retry.`,
-            });
-            return;
+      // 3. Initiate save via chrome.downloads.download() from the service worker.
+      // Using the Downloads API directly avoids renderer-side blob URL ownership issues
+      // that cause FILE_TRANSIENT_ERROR for large files (2+ GB) on Windows.
+      await new Promise<void>((resolve, reject) => {
+        chrome.downloads.download(
+          { url: blobUrl, saveAs: false, conflictAction: 'uniquify' },
+          (downloadId) => {
+            if (chrome.runtime.lastError || !downloadId) {
+              reject(new Error(chrome.runtime.lastError?.message || 'chrome.downloads.download returned no ID'));
+            } else {
+              resolve();
+            }
           }
-
-          keepAliveGuard.retain();
-          this.pendingChromeDownloads.set(chromeDlId, {
-            id,
-            blobUrl,
-            safeFilename,
-            fileSize: actualSize,
-            targetSavePath: savePath,
-          });
-        }
-      );
+        );
+      });
     } catch (err: any) {
       releaseOffscreenAssembly(id);
       await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
         error: null,
-        errorMessage: `Save interrupted: ${err?.message || err}. Click Resume to retry saving.`,
+        errorMessage: `Save interrupted: . Click Resume to retry saving.`,
         percent: 100,
         progress: 100,
       } as any);
@@ -691,12 +640,16 @@ export class DownloadCoordinator {
       }
     }
 
+    if (!targetPath && item.filename && !item.filename.includes('://')) {
+      targetPath = item.filename;
+    }
+
     if (targetPath) {
       suggest({
         filename: targetPath,
         conflictAction: 'uniquify',
       });
-      return true;
+      return false;
     }
 
     suggest();
@@ -825,11 +778,65 @@ export class DownloadCoordinator {
           keepAliveGuard.release();
         }
         const isUserCancel = delta.error?.current === 'USER_CANCELED';
+        const isTransientError = delta.error?.current === 'FILE_TRANSIENT_ERROR';
         console.error('[ADL Save Interrupted Error]:', delta.error?.current, 'Chrome Download ID:', delta.id);
         this.pendingChromeDownloads.delete(delta.id);
         this.pendingBlobSaves.delete(pending.blobUrl);
         revokeBlobUrl(pending.blobUrl);
         releaseOffscreenAssembly(pending.id);
+
+        // FILE_TRANSIENT_ERROR means the OS/disk was temporarily busy (common with large ISOs/archives).
+        // Auto-retry up to 4 times with exponential backoff before surfacing the error to the user.
+        const saveRetryBudgetKey = `save_retry_${pending.id}`;
+        const saveRetries = (this.autoRetryBudget.get(saveRetryBudgetKey) ?? 0);
+        const MAX_SAVE_RETRIES = 4;
+        const SAVE_RETRY_DELAYS = [2_000, 4_000, 8_000, 16_000];
+
+        if (!isUserCancel && isTransientError && saveRetries < MAX_SAVE_RETRIES) {
+          this.autoRetryBudget.set(saveRetryBudgetKey, saveRetries + 1);
+          const retryDelay = SAVE_RETRY_DELAYS[saveRetries];
+          console.warn(`[ADL] FILE_TRANSIENT_ERROR — retrying save in ${retryDelay / 1000}s (attempt ${saveRetries + 1}/${MAX_SAVE_RETRIES}) for: ${pending.safeFilename}`);
+
+          await this.updateState(pending.id, DOWNLOAD_STATE.MERGING as DownloadState, {
+            error: null,
+            errorMessage: `Disk busy — retrying save in ${retryDelay / 1000}s (${saveRetries + 1}/${MAX_SAVE_RETRIES})…`,
+            percent: 100,
+            progress: 100,
+          } as any);
+
+          broadcastMessage({
+            type: MSG.DOWNLOAD_PROGRESS,
+            id: pending.id,
+            state: DOWNLOAD_STATE.MERGING,
+            errorMessage: `Disk busy — retrying save in ${retryDelay / 1000}s (${saveRetries + 1}/${MAX_SAVE_RETRIES})…`,
+          });
+
+          setTimeout(async () => {
+            // Always read the full record from storage \u2014 the cache entry has totalChunks populated
+            // from the original download. Falling back to a bare object (with no totalChunks) would
+            // cause saveExistingDownloadToDisk to default chunkCount=1 and assemble only the first segment.
+            let dlRecord = this.downloadCache.get(pending.id);
+            if (!dlRecord) {
+              dlRecord = await getDownload(pending.id) ?? undefined;
+            }
+            if (!dlRecord) {
+              console.error('[ADL] Save retry: download record not found for', pending.id);
+              return;
+            }
+            const curStatus = (dlRecord?.status || (dlRecord as any)?.state);
+            if (curStatus === DOWNLOAD_STATE.CANCELLED || curStatus === DOWNLOAD_STATE.COMPLETED) return;
+            this.saveExistingDownloadToDisk(dlRecord)
+              .catch((err) => {
+                console.error('[ADL] Save retry failed:', err);
+              });
+          }, retryDelay);
+
+          await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);
+          return;
+        }
+
+        // Clear the retry budget once we give up or the user cancelled
+        this.autoRetryBudget.delete(saveRetryBudgetKey);
 
         // All chunks are 100% intact in IndexedDB. Never clear chunks on save failure.
         const msg = isUserCancel
@@ -923,6 +930,17 @@ export class DownloadCoordinator {
 
     if (this.ownBlobUrls.has(item.url)) {
       this.ownBlobUrls.delete(item.url);
+      const saveInfo = this.pendingBlobSaves.get(item.url);
+      if (saveInfo) {
+        keepAliveGuard.retain();
+        this.pendingChromeDownloads.set(item.id, {
+          id: saveInfo.id,
+          blobUrl: item.url,
+          safeFilename: saveInfo.safeFilename,
+          fileSize: saveInfo.fileSize,
+          targetSavePath: saveInfo.targetSavePath,
+        });
+      }
       return;
     }
 
@@ -932,7 +950,10 @@ export class DownloadCoordinator {
       return;
     }
 
-    // Prevent duplicate re-interception of downloads already active, queued, or explicitly cancelled
+    // Prevent duplicate re-interception of downloads already active, queued, paused, or in save phase.
+    // MERGING and VERIFYING must be included — otherwise Chrome's native "Try again" button (shown when
+    // a blob save fails with FILE_TRANSIENT_ERROR) triggers a fresh re-download from the original URL
+    // while we are still assembling or retrying the save, causing a duplicate download from scratch.
     for (const dl of this.downloadCache.values()) {
       if (dl.url === item.url) {
         const st = dl.status || (dl as any).state;
@@ -941,7 +962,9 @@ export class DownloadCoordinator {
           st === DOWNLOAD_STATE.DOWNLOADING ||
           st === DOWNLOAD_STATE.CONNECTING ||
           st === DOWNLOAD_STATE.PAUSED ||
-          st === DOWNLOAD_STATE.QUEUED
+          st === DOWNLOAD_STATE.QUEUED ||
+          st === DOWNLOAD_STATE.MERGING ||
+          st === DOWNLOAD_STATE.VERIFYING
         ) {
           return;
         }

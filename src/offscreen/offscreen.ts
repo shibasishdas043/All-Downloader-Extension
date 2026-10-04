@@ -10,8 +10,9 @@ import { computeBlobSha256 } from '../shared/streaming-sha256.js';
 interface ActiveBlobRecord {
   downloadId: string;
   created: number;
-  blob: Blob;
-  chunks: (ArrayBuffer | Blob)[];
+  // NOTE: We intentionally do NOT retain the blob or chunks here.
+  // Keeping strong references to multi-GB blobs prevents GC and causes
+  // FILE_TRANSIENT_ERROR / "System busy" errors when Chrome tries to save.
 }
 
 const activeBlobUrls = new Map<string, ActiveBlobRecord>();
@@ -37,6 +38,24 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === MSG.OFFSCREEN_TRIGGER_CLICK) {
+    try {
+      const a = document.createElement('a');
+      a.href = message.blobUrl;
+      a.download = message.filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        try { document.body.removeChild(a); } catch {}
+      }, 200);
+      sendResponse({ success: true });
+    } catch (err: any) {
+      console.error('[ADL Offscreen] Trigger click failed:', err);
+      sendResponse({ success: false, error: err?.message || String(err) });
+    }
+    return false;
+  }
+
   if (message?.type === MSG.OFFSCREEN_REVOKE_BLOB_URL) {
     if (message.blobUrl) {
       try {
@@ -58,16 +77,23 @@ async function handleDirectDownload(params: {
   chunkCount: number;
   filename: string;
   mimeType?: string;
+  blobUrl?: string;
 }): Promise<{ success: boolean; blobUrl: string }> {
   const { downloadId, chunkCount, filename, mimeType } = params;
-  const res = await handleCreateBlobUrl({ downloadId, chunkCount, mimeType, verifyHash: false });
+  let blobUrl = params.blobUrl;
+  if (!blobUrl) {
+    const res = await handleCreateBlobUrl({ downloadId, chunkCount, mimeType, verifyHash: false });
+    blobUrl = res.blobUrl;
+  }
   const a = document.createElement('a');
-  a.href = res.blobUrl;
+  a.href = blobUrl;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
-  return { success: true, blobUrl: res.blobUrl };
+  setTimeout(() => {
+    try { document.body.removeChild(a); } catch {}
+  }, 200);
+  return { success: true, blobUrl };
 }
 
 async function handleCreateBlobUrl(params: {
@@ -96,6 +122,12 @@ async function handleCreateBlobUrl(params: {
     type: mimeType || 'application/octet-stream',
   });
 
+  // Release chunk references immediately so GC can reclaim memory.
+  // The composite Blob is a zero-copy view into the underlying storage;
+  // holding the source arrays only wastes memory and causes FILE_TRANSIENT_ERROR
+  // on large files (2+ GB) because the entire file stays pinned in the renderer.
+  chunks.length = 0;
+
   // 3. Compute SHA-256 checksum if integrity verification is requested
   let sha256: string | undefined;
   if (verifyHash) {
@@ -103,18 +135,24 @@ async function handleCreateBlobUrl(params: {
   }
 
   // 4. Create native blob: URL
+  // IMPORTANT: Do NOT store a reference to compositeBlob in activeBlobUrls.
+  // Doing so pins the entire multi-GB blob in memory until explicit revocation,
+  // which causes "System busy" / FILE_TRANSIENT_ERROR on saves of large files.
   const blobUrl = URL.createObjectURL(compositeBlob);
   activeBlobUrls.set(blobUrl, {
     downloadId,
     created: Date.now(),
-    blob: compositeBlob,
-    chunks,
+    // compositeBlob intentionally NOT stored — let GC handle it once URL is created
   });
+
+  const blobSize = compositeBlob.size;
+  // Allow compositeBlob to go out of scope here; the blob: URL keeps the underlying
+  // storage alive in Blink without needing a JS-side reference.
 
   return {
     success: true,
     blobUrl,
-    size: compositeBlob.size,
+    size: blobSize,
     sha256,
   };
 }
