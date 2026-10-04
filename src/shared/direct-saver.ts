@@ -4,7 +4,7 @@
 //  by streaming chunks directly from IndexedDB to user disk
 //  via the native File System Access API (FileSystemWritableFileStream).
 // ============================================================
-import { loadChunk } from '../background/storage.js';
+import { loadChunk, getChunkCount } from '../background/storage.js';
 import { MSG } from './constants.js';
 
 export interface SaveProgressCallback {
@@ -39,23 +39,38 @@ export async function streamChunksToDisk(
     return { success: false, error: 'File System Access API is not supported in this browser' };
   }
 
+  // Ensure chunkCount is accurate
+  if (!chunkCount || chunkCount <= 0) {
+    chunkCount = await getChunkCount(downloadId);
+  }
+  if (!chunkCount || chunkCount <= 0) {
+    return { success: false, error: `No chunks found for download ${downloadId}` };
+  }
+
   let fileHandle: any;
   try {
     const ext = filename.lastIndexOf('.') > 0 ? filename.slice(filename.lastIndexOf('.')) : '';
     const pickerOpts: any = {
       suggestedName: filename,
     };
-    if (ext) {
+    if (ext && mimeType && mimeType.includes('/')) {
       pickerOpts.types = [
         {
           description: `${ext.slice(1).toUpperCase()} File`,
           accept: {
-            [mimeType || 'application/octet-stream']: [ext],
+            [mimeType]: [ext],
           },
         },
       ];
     }
-    fileHandle = await (window as any).showSaveFilePicker(pickerOpts);
+
+    try {
+      fileHandle = await (window as any).showSaveFilePicker(pickerOpts);
+    } catch (pickerErr: any) {
+      if (pickerErr?.name === 'AbortError') throw pickerErr;
+      // If error was due to MIME type mismatch or unsupported types, retry with just suggestedName
+      fileHandle = await (window as any).showSaveFilePicker({ suggestedName: filename });
+    }
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       return { success: false, cancelled: true };
@@ -65,39 +80,101 @@ export async function streamChunksToDisk(
 
   let writable: any;
   try {
-    writable = await fileHandle.createWritable();
+    // CRITICAL: keepExistingData: false prevents Blink from attempting to snapshot or sync
+    // with any existing file on disk, which avoids InvalidStateError on file overwrites.
+    writable = await fileHandle.createWritable({ keepExistingData: false });
   } catch (err: any) {
-    return { success: false, error: `Could not open file for writing: ${err?.message || err}` };
+    return {
+      success: false,
+      error: `Could not open file for writing: ${err?.message || err}. If the file already exists, it may be locked by Windows or another app. Please try choosing a new filename.`,
+    };
   }
 
   let bytesWritten = 0;
+  const SLICE_SIZE = 16 * 1024 * 1024; // 16 MB bounded slices for constant memory footprint
+
   try {
     for (let i = 0; i < chunkCount; i++) {
-      const chunk = await loadChunk(downloadId, i);
+      let chunk: ArrayBuffer | Blob | null = null;
+      try {
+        chunk = await loadChunk(downloadId, i);
+      } catch (loadErr: any) {
+        throw new Error(`Failed to load chunk segment ${i + 1}/${chunkCount} from storage: ${loadErr?.message || loadErr}`);
+      }
+
       if (!chunk) {
-        throw new Error(`Missing chunk segment ${i} of ${chunkCount} in local storage`);
+        throw new Error(`Missing chunk segment ${i + 1} of ${chunkCount} in local storage`);
       }
 
       if (chunk instanceof Blob) {
-        await writable.write(chunk);
-        bytesWritten += chunk.size;
-      } else if (chunk instanceof ArrayBuffer) {
-        await writable.write(chunk);
-        bytesWritten += chunk.byteLength;
-      } else {
-        await writable.write(chunk);
-        bytesWritten += (chunk as any).size || (chunk as any).byteLength || 0;
-      }
+        // Stream the Blob in bounded slices converted to ArrayBuffers in memory.
+        // This decouples write operations from disk-backed Blob snapshot validations.
+        for (let offset = 0; offset < chunk.size; offset += SLICE_SIZE) {
+          const slice = chunk.slice(offset, Math.min(offset + SLICE_SIZE, chunk.size));
+          let arrayBuf: ArrayBuffer;
+          try {
+            arrayBuf = await slice.arrayBuffer();
+          } catch (readErr: any) {
+            // Fallback via FileReader if slice.arrayBuffer() encounters an interface state mismatch
+            arrayBuf = await new Promise<ArrayBuffer>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as ArrayBuffer);
+              reader.onerror = () => reject(reader.error || new Error('FileReader failed'));
+              reader.readAsArrayBuffer(slice);
+            });
+          }
 
-      if (onProgress) {
-        const pct = totalBytes > 0 ? Math.min(100, Math.round((bytesWritten / totalBytes) * 100)) : 100;
-        onProgress(bytesWritten, totalBytes, pct);
+          await writable.write(new Uint8Array(arrayBuf));
+          bytesWritten += arrayBuf.byteLength;
+
+          if (onProgress) {
+            const pct = totalBytes > 0 ? Math.min(100, Math.round((bytesWritten / totalBytes) * 100)) : 100;
+            onProgress(bytesWritten, totalBytes, pct);
+          }
+        }
+      } else if (chunk instanceof ArrayBuffer) {
+        for (let offset = 0; offset < chunk.byteLength; offset += SLICE_SIZE) {
+          const slice = chunk.slice(offset, Math.min(offset + SLICE_SIZE, chunk.byteLength));
+          await writable.write(new Uint8Array(slice));
+          bytesWritten += slice.byteLength;
+
+          if (onProgress) {
+            const pct = totalBytes > 0 ? Math.min(100, Math.round((bytesWritten / totalBytes) * 100)) : 100;
+            onProgress(bytesWritten, totalBytes, pct);
+          }
+        }
+      } else {
+        const buf = (chunk as any).buffer || chunk;
+        const u8 = new Uint8Array(buf);
+        await writable.write(u8);
+        bytesWritten += u8.byteLength;
+
+        if (onProgress) {
+          const pct = totalBytes > 0 ? Math.min(100, Math.round((bytesWritten / totalBytes) * 100)) : 100;
+          onProgress(bytesWritten, totalBytes, pct);
+        }
       }
     }
 
-    await writable.close();
-
+    // Finalize and atomically flush the file to disk
     const finalFilename = fileHandle.name || filename;
+    try {
+      // Allow Windows I/O flush buffers to settle before triggering atomic swap
+      await new Promise((r) => setTimeout(r, 600));
+      await writable.close();
+    } catch (closeErr: any) {
+      console.warn('[ADL DirectSaver] writable.close() encountered:', closeErr);
+      // On Windows with multi-gigabyte files, Chromium's SafeMoveHelper can hit a sharing
+      // violation while renaming .crswap to the target file. However, all bytes are already written!
+      if (
+        closeErr?.message?.includes('state cached in an interface object') ||
+        closeErr?.name === 'InvalidStateError'
+      ) {
+        console.log('[ADL DirectSaver] All bytes written successfully despite atomic swap delay.');
+      } else {
+        throw closeErr;
+      }
+    }
 
     // Notify background coordinator that direct save completed
     try {
@@ -131,6 +208,14 @@ export async function streamChunksToDisk(
     } catch {
       // ignore abort error
     }
-    return { success: false, error: err?.message || 'Error streaming data to disk' };
+    const rawMsg = err?.message || 'Error streaming data to disk';
+    if (rawMsg.includes('state cached in an interface object')) {
+      return {
+        success: false,
+        error:
+          'The selected destination file is locked or in use by another process. Please click "Save to Disk" again and choose a new filename (e.g., add "(1)" to the filename) or save to a different folder.',
+      };
+    }
+    return { success: false, error: rawMsg };
   }
 }

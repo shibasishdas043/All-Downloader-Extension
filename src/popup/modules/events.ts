@@ -7,7 +7,7 @@ import { downloads, setDownload, getAllDownloads } from './state.js';
 import {
   pauseDl, resumeDl, cancelDl, deleteDl,
   showInFolder, retryDl, pauseAll,
-  startManualDownload, openDashboard
+  startManualDownload, openDashboard, saveDlToDisk
 } from './actions.js';
 import { renderAll, updateItem, updateStatusBar, togglePopupChunkDrawer } from './renderer.js';
 
@@ -23,6 +23,7 @@ export function bindEvents(): void {
       const id = item.dataset.id;
       if (!id) return;
 
+      if (btn.classList.contains('ctrl-save-disk')) saveDlToDisk(id);
       if (btn.classList.contains('ctrl-pause'))  pauseDl(id);
       if (btn.classList.contains('ctrl-resume')) resumeDl(id);
       if (btn.classList.contains('ctrl-cancel')) cancelDl(id);

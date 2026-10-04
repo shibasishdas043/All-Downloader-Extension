@@ -7,6 +7,8 @@ import {
   truncateName, getExtension
 } from '../../../shared/utils.js';
 import { renderChunkDrawerHtml } from '../../../shared/chunk-helpers.js';
+import { streamChunksToDisk } from '../../../shared/direct-saver.js';
+import { getChunkCount } from '../../../background/storage.js';
 import { state } from '../state.js';
 import { sendMsg } from '../api.js';
 import { escHtml, renderPaginationControls } from '../dom-helpers.js';
@@ -105,6 +107,13 @@ export function flushProgressUpdates(): void {
 }
 
 export function buildStateBadge(dlState: string, dl?: any): string {
+  const isReadyToSave = Boolean(
+    dl?.isReadyToSave ||
+    (dlState === DOWNLOAD_STATE.PAUSED && ((dl?.percent && dl.percent >= 100) || (dl?.filesize > 0 && dl.received >= dl.filesize)))
+  );
+  if (isReadyToSave) {
+    return `<span class="status-badge ready-save"><span class="status-dot"></span>Ready to Save</span>`;
+  }
   if (dl?.autoReconnecting) {
     return `<span class="status-badge reconnecting"><span class="status-dot"></span>Reconnecting…</span>`;
   }
@@ -123,18 +132,32 @@ export function buildStateBadge(dlState: string, dl?: any): string {
 }
 
 export function buildRowActions(dl: any): string {
-  const isActive = [
+  const isReadyToSave = Boolean(
+    dl.isReadyToSave ||
+    (dl.state === DOWNLOAD_STATE.PAUSED && ((dl.percent && dl.percent >= 100) || (dl.filesize > 0 && dl.received >= dl.filesize)))
+  );
+  const isActive = !isReadyToSave && [
     DOWNLOAD_STATE.DOWNLOADING,
     DOWNLOAD_STATE.CONNECTING,
     DOWNLOAD_STATE.MERGING,
     DOWNLOAD_STATE.VERIFYING
   ].includes(dl.state);
-  const isPaused = dl.state === DOWNLOAD_STATE.PAUSED || dl.state === DOWNLOAD_STATE.QUEUED;
+  const isPaused = !isReadyToSave && (dl.state === DOWNLOAD_STATE.PAUSED || dl.state === DOWNLOAD_STATE.QUEUED);
   const isError  = dl.state === DOWNLOAD_STATE.ERROR || dl.state === DOWNLOAD_STATE.CANCELLED;
   const isDone   = dl.state === DOWNLOAD_STATE.COMPLETED;
-  const canCancel = isActive || isPaused;
+  const canCancel = (isActive || isPaused) && !isReadyToSave;
 
   let html = '';
+  if (isReadyToSave) {
+    html += `<button class="row-btn row-btn-save-disk" data-act="save-disk" data-id="${dl.id}" title="Save to disk">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+        <polyline points="17 21 17 13 7 13 7 21"/>
+        <polyline points="7 3 7 8 15 8"/>
+      </svg>
+      <span>Save to Disk</span>
+    </button>`;
+  }
   if (isActive) {
     html += `<button class="row-btn row-btn-pause" data-act="pause" data-id="${dl.id}" title="Pause">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
@@ -437,6 +460,10 @@ export function bindTableDelegation(): void {
       const id = btn.dataset.id;
       if (!id) return;
 
+      if (actType === 'save-disk') {
+        await handleSaveDisk(id, btn);
+        return;
+      }
       if (actType === 'open')   await act(MSG.SHOW_IN_FOLDER,  id);
       if (actType === 'pause')  await act(MSG.PAUSE_DOWNLOAD,  id);
       if (actType === 'resume') await act(MSG.RESUME_DOWNLOAD, id);
@@ -471,4 +498,56 @@ export function bindTableDelegation(): void {
     updateSelectAllCheckbox();
     updateBulkBar();
   });
+}
+
+async function handleSaveDisk(id: string, btn: HTMLElement): Promise<void> {
+  const dl = state.downloads[id];
+  if (!dl) return;
+
+  btn.classList.add('loading');
+  (btn as HTMLButtonElement).disabled = true;
+
+  const tr = btn.closest('tr');
+  const speedCell = tr?.querySelector('.speed-cell');
+  const fill = tr?.querySelector('.tbl-progress-fill') as HTMLElement | null;
+  const label = tr?.querySelector('.tbl-progress-label');
+
+  if (speedCell) speedCell.textContent = 'Saving to disk…';
+
+  try {
+    const chunkCount = dl.totalChunks || dl.chunkCount || (await getChunkCount(id)) || 1;
+    const totalSize = dl.filesize || dl.total || dl.received || 0;
+
+    const res = await streamChunksToDisk(
+      id,
+      dl.filename,
+      chunkCount,
+      totalSize,
+      dl.mimeType || undefined,
+      (_written, _total, pct) => {
+        if (speedCell) speedCell.textContent = `Saving ${pct}%…`;
+        if (fill)  fill.style.width = `${pct}%`;
+        if (label) label.textContent = `${pct}%`;
+      }
+    );
+
+    if (res.success) {
+      dl.isReadyToSave = false;
+      dl.state = DOWNLOAD_STATE.COMPLETED;
+      renderDownloadsTable();
+    } else if (res.cancelled) {
+      if (speedCell) speedCell.textContent = '—';
+    } else {
+      console.error('[ADL Dashboard Save Error]:', res.error);
+      alert(`Save failed: ${res.error}`);
+      if (speedCell) speedCell.textContent = '—';
+    }
+  } catch (err: any) {
+    console.error('[ADL Dashboard Save Exception]:', err);
+    alert(`Save failed: ${err?.message || err}`);
+    if (speedCell) speedCell.textContent = '—';
+  } finally {
+    btn.classList.remove('loading');
+    (btn as HTMLButtonElement).disabled = false;
+  }
 }

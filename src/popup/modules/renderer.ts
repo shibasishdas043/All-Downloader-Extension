@@ -103,8 +103,17 @@ export function populateItem(el: HTMLElement, dl: any): void {
   const received = dl.received || dl.receivedBytes || 0;
   const st = dl.status || dl.state;
 
+  const isReadyToSave = Boolean(
+    dl.isReadyToSave ||
+    (st === DOWNLOAD_STATE.PAUSED && ((dl.percent && dl.percent >= 100) || (dl.progress && dl.progress >= 100) || (total > 0 && received >= total)))
+  );
+
   let metaHtml = '';
-  if (st === DOWNLOAD_STATE.COMPLETED) {
+  if (isReadyToSave) {
+    const sizeVal = total > 0 ? total : (received > 0 ? received : (dl.fileSize || dl.filesize || 0));
+    const size = sizeVal > 0 ? formatBytes(sizeVal) : '—';
+    metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text ready-save">Ready to Save</span>`;
+  } else if (st === DOWNLOAD_STATE.COMPLETED) {
     const sizeVal = total > 0 ? total : (received > 0 ? received : (dl.fileSize || dl.filesize || 0));
     const size = sizeVal > 0 ? formatBytes(sizeVal) : '—';
     metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text completed">Completed</span>`;
@@ -127,7 +136,7 @@ export function populateItem(el: HTMLElement, dl: any): void {
 
   (el.querySelector('.dl-meta') as HTMLElement).innerHTML = metaHtml;
 
-  const pct = dl.percent ?? dl.progress ?? 0;
+  const pct = isReadyToSave ? 100 : (dl.percent ?? dl.progress ?? 0);
   (el.querySelector('.dl-progress-fill') as HTMLElement).style.width = `${pct}%`;
 
   const stateBadgeLabels: Record<string, string> = {
@@ -145,7 +154,11 @@ export function populateItem(el: HTMLElement, dl: any): void {
   const pctEl   = el.querySelector('.dl-percent') as HTMLElement;
   const etaEl   = el.querySelector('.dl-eta') as HTMLElement;
 
-  if ((dl as any).autoReconnecting) {
+  if (isReadyToSave) {
+    speedEl.textContent = 'Ready to Save';
+    pctEl.textContent   = '100%';
+    etaEl.textContent   = '';
+  } else if ((dl as any).autoReconnecting) {
     speedEl.textContent = 'Reconnecting…';
     pctEl.textContent   = `${pct}%`;
     etaEl.textContent   = '';
@@ -159,8 +172,8 @@ export function populateItem(el: HTMLElement, dl: any): void {
     etaEl.textContent   = '';
   }
 
-  speedEl.classList.toggle('reconnecting', Boolean((dl as any).autoReconnecting));
-  speedEl.classList.toggle('fast', !Boolean((dl as any).autoReconnecting) && (dl.speed || 0) > 1024 * 1024);
+  speedEl.classList.toggle('reconnecting', !isReadyToSave && Boolean((dl as any).autoReconnecting));
+  speedEl.classList.toggle('fast', !isReadyToSave && !Boolean((dl as any).autoReconnecting) && (dl.speed || 0) > 1024 * 1024);
 
   const needsCancel = [
     DOWNLOAD_STATE.QUEUED, DOWNLOAD_STATE.CONNECTING,
@@ -173,13 +186,13 @@ export function populateItem(el: HTMLElement, dl: any): void {
   const isActive    = st === DOWNLOAD_STATE.DOWNLOADING || st === DOWNLOAD_STATE.CONNECTING;
   const isPaused    = st === DOWNLOAD_STATE.PAUSED || st === DOWNLOAD_STATE.QUEUED;
 
-  el.querySelector('.ctrl-save-disk')?.classList.add('hidden');
-  el.querySelector('.ctrl-pause')?.classList.toggle('hidden', !isActive);
-  el.querySelector('.ctrl-resume')?.classList.toggle('hidden', !isPaused);
-  el.querySelector('.ctrl-cancel')?.classList.toggle('hidden', !needsCancel);
+  el.querySelector('.ctrl-save-disk')?.classList.toggle('hidden', !isReadyToSave);
+  el.querySelector('.ctrl-pause')?.classList.toggle('hidden', !isActive || isReadyToSave);
+  el.querySelector('.ctrl-resume')?.classList.toggle('hidden', !isPaused || isReadyToSave);
+  el.querySelector('.ctrl-cancel')?.classList.toggle('hidden', !needsCancel || isReadyToSave);
   el.querySelector('.ctrl-folder')?.classList.toggle('hidden', !isCompleted);
   el.querySelector('.ctrl-retry')?.classList.toggle('hidden', !isFailed);
-  el.querySelector('.ctrl-remove')?.classList.toggle('hidden', !(isCompleted || isFailed));
+  el.querySelector('.ctrl-remove')?.classList.toggle('hidden', !(isCompleted || isFailed || isReadyToSave));
 
   // Chunk Drawer Toggle State
   const isExpanded = expandedPopupIds.has(dl.id);

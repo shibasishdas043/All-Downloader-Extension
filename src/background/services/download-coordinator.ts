@@ -4,7 +4,7 @@
 import { MSG, DOWNLOAD_STATE, CATEGORY_FOLDER_NAMES, HEAVY_EXTENSIONS } from '../../shared/constants.js';
 import {
   generateId, getFilenameFromUrl, detectCategory,
-  calcPercent
+  calcPercent, formatBytes
 } from '../../shared/utils.js';
 import {
   upsertDownload, getDownload,
@@ -337,6 +337,44 @@ export class DownloadCoordinator {
             : undefined;
           const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
 
+          // If the file is 1.5 GB or larger, Chrome's internal blob download pipeline crashes/overflows (2GB cap).
+          // Save directly via the File System Access API streaming saver instead.
+          const LARGE_FILE_THRESHOLD_BYTES = 1.5 * 1024 * 1024 * 1024; // 1.5 GB
+          if (actualSize >= LARGE_FILE_THRESHOLD_BYTES) {
+            await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+              category: resolvedCategory,
+              mimeType: resolvedMime,
+              total: actualSize,
+              filesize: actualSize,
+              received: actualSize,
+              receivedBytes: actualSize,
+              totalChunks: result.chunkCount,
+              chunkCount: result.chunkCount,
+              percent: 100,
+              progress: 100,
+              isReadyToSave: true,
+              error: null,
+              errorMessage: `Download complete (${formatBytes(actualSize)})! Ready to save to disk.`,
+            } as any);
+
+            this.queue.markDone(id);
+
+            broadcastMessage({
+              type: MSG.DOWNLOAD_PAUSED,
+              id,
+              isReadyToSave: true,
+              errorMessage: `Download complete! Click "Save to Disk" to save.`,
+            });
+
+            if (this.settings.showNotifications) {
+              showNotification(
+                'Download Complete — Save to Disk',
+                `${safeFilename} is 100% downloaded. Click "Save to Disk" in the extension to choose your save location.`
+              );
+            }
+            return;
+          }
+
           // Mark download as merging/saving to disk
           await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
             category: resolvedCategory,
@@ -551,6 +589,26 @@ export class DownloadCoordinator {
   public async saveExistingDownloadToDisk(dl: DownloadItem): Promise<void> {
     const id = dl.id;
     try {
+      const actualSize = dl.filesize || dl.receivedBytes || 0;
+      const LARGE_FILE_THRESHOLD_BYTES = 1.5 * 1024 * 1024 * 1024; // 1.5 GB
+      if (actualSize >= LARGE_FILE_THRESHOLD_BYTES || (dl as any).isReadyToSave) {
+        await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
+          percent: 100,
+          progress: 100,
+          isReadyToSave: true,
+          error: null,
+          errorMessage: `Download complete (${formatBytes(actualSize)})! Ready to save to disk.`,
+        } as any);
+        this.queue.markDone(id);
+        broadcastMessage({
+          type: MSG.DOWNLOAD_PAUSED,
+          id,
+          isReadyToSave: true,
+          errorMessage: `Download complete! Click "Save to Disk" to save.`,
+        });
+        return;
+      }
+
       await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState);
       const safeFilename = sanitizeFilename(dl.filename);
       const resolvedCategory = dl.category || detectCategory(safeFilename, dl.mimeType || undefined);
@@ -559,7 +617,6 @@ export class DownloadCoordinator {
         : undefined;
       const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
       const chunkCount = dl.totalChunks || (dl as any).chunkCount || 1;
-      const actualSize = dl.filesize || dl.receivedBytes || 0;
 
       retainOffscreenAssembly(id);
       await ensureOffscreenDocument();
@@ -773,92 +830,47 @@ export class DownloadCoordinator {
         await this.pruneHistory();
 
         await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);
+
       } else if (delta.state.current === 'interrupted') {
+        const isUserCancel = delta.error?.current === 'USER_CANCELED';
+        const errorCode = delta.error?.current || 'unknown';
+        console.warn('[ADL Save Interrupted]:', errorCode, 'Chrome Download ID:', delta.id);
+
         if (this.pendingChromeDownloads.has(delta.id)) {
           keepAliveGuard.release();
         }
-        const isUserCancel = delta.error?.current === 'USER_CANCELED';
-        const isTransientError = delta.error?.current === 'FILE_TRANSIENT_ERROR';
-        console.error('[ADL Save Interrupted Error]:', delta.error?.current, 'Chrome Download ID:', delta.id);
         this.pendingChromeDownloads.delete(delta.id);
         this.pendingBlobSaves.delete(pending.blobUrl);
+        this.ownBlobUrls.delete(pending.blobUrl);
         revokeBlobUrl(pending.blobUrl);
         releaseOffscreenAssembly(pending.id);
+        this.autoRetryBudget.delete(`save_retry_${pending.id}`);
 
-        // FILE_TRANSIENT_ERROR means the OS/disk was temporarily busy (common with large ISOs/archives).
-        // Auto-retry up to 4 times with exponential backoff before surfacing the error to the user.
-        const saveRetryBudgetKey = `save_retry_${pending.id}`;
-        const saveRetries = (this.autoRetryBudget.get(saveRetryBudgetKey) ?? 0);
-        const MAX_SAVE_RETRIES = 4;
-        const SAVE_RETRY_DELAYS = [2_000, 4_000, 8_000, 16_000];
-
-        if (!isUserCancel && isTransientError && saveRetries < MAX_SAVE_RETRIES) {
-          this.autoRetryBudget.set(saveRetryBudgetKey, saveRetries + 1);
-          const retryDelay = SAVE_RETRY_DELAYS[saveRetries];
-          console.warn(`[ADL] FILE_TRANSIENT_ERROR — retrying save in ${retryDelay / 1000}s (attempt ${saveRetries + 1}/${MAX_SAVE_RETRIES}) for: ${pending.safeFilename}`);
-
-          await this.updateState(pending.id, DOWNLOAD_STATE.MERGING as DownloadState, {
-            error: null,
-            errorMessage: `Disk busy — retrying save in ${retryDelay / 1000}s (${saveRetries + 1}/${MAX_SAVE_RETRIES})…`,
-            percent: 100,
-            progress: 100,
-          } as any);
-
-          broadcastMessage({
-            type: MSG.DOWNLOAD_PROGRESS,
-            id: pending.id,
-            state: DOWNLOAD_STATE.MERGING,
-            errorMessage: `Disk busy — retrying save in ${retryDelay / 1000}s (${saveRetries + 1}/${MAX_SAVE_RETRIES})…`,
-          });
-
-          setTimeout(async () => {
-            // Always read the full record from storage \u2014 the cache entry has totalChunks populated
-            // from the original download. Falling back to a bare object (with no totalChunks) would
-            // cause saveExistingDownloadToDisk to default chunkCount=1 and assemble only the first segment.
-            let dlRecord = this.downloadCache.get(pending.id);
-            if (!dlRecord) {
-              dlRecord = await getDownload(pending.id) ?? undefined;
-            }
-            if (!dlRecord) {
-              console.error('[ADL] Save retry: download record not found for', pending.id);
-              return;
-            }
-            const curStatus = (dlRecord?.status || (dlRecord as any)?.state);
-            if (curStatus === DOWNLOAD_STATE.CANCELLED || curStatus === DOWNLOAD_STATE.COMPLETED) return;
-            this.saveExistingDownloadToDisk(dlRecord)
-              .catch((err) => {
-                console.error('[ADL] Save retry failed:', err);
-              });
-          }, retryDelay);
-
-          await closeOffscreenDocumentIfIdle(this.pendingChromeDownloads.size > 0);
-          return;
-        }
-
-        // Clear the retry budget once we give up or the user cancelled
-        this.autoRetryBudget.delete(saveRetryBudgetKey);
-
-        // All chunks are 100% intact in IndexedDB. Never clear chunks on save failure.
+        // All chunks are 100% intact in IndexedDB.
+        // If Chrome's in-memory blob save failed (e.g. FILE_TRANSIENT_ERROR / 2GB cap / lock),
+        // switch directly to the native File System Access API streaming saver!
         const msg = isUserCancel
-          ? 'Save was cancelled. Download is 100% intact — click Resume to retry saving.'
-          : `Save to disk was interrupted (${delta.error?.current || 'unknown'}). Download is 100% intact — click Resume to retry.`;
+          ? 'Save was cancelled. Download is 100% intact — click "Save to Disk" to save.'
+          : 'Browser could not write file directly. Download is 100% intact — click "Save to Disk" to save directly.';
 
         await this.updateState(pending.id, DOWNLOAD_STATE.PAUSED as DownloadState, {
           error: null,
           errorMessage: msg,
           percent: 100,
           progress: 100,
+          isReadyToSave: true,
         } as any);
 
         broadcastMessage({
           type: MSG.DOWNLOAD_PAUSED,
           id: pending.id,
+          isReadyToSave: true,
           error: msg,
         });
 
         showNotification(
-          'Save Interrupted',
-          `${pending.safeFilename}: ${msg}`
+          'Save to Disk Ready',
+          `${pending.safeFilename}: Click "Save to Disk" in the extension to save.`
         );
 
         this.queue.markDone(pending.id);

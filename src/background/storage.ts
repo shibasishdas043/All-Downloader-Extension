@@ -402,3 +402,35 @@ export async function clearChunks(downloadId: string): Promise<void> {
     }
   });
 }
+
+/** Count how many chunk segments exist in IndexedDB for a given downloadId. */
+export async function getChunkCount(downloadId: string): Promise<number> {
+  const db = await openIDB();
+  if (!db) return 0;
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const store = tx.objectStore(IDB_STORE);
+
+    if (store.indexNames.contains('by_download')) {
+      const index = store.index('by_download');
+      const req = index.count(IDBKeyRange.only(downloadId));
+      req.onsuccess = () => resolve(req.result || 0);
+      req.onerror = () => reject(req.error);
+    } else {
+      let count = 0;
+      const req = store.openCursor();
+      req.onsuccess = (e) => {
+        const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+        if (cursor) {
+          if (typeof cursor.key === 'string' && cursor.key.startsWith(`${downloadId}_`)) {
+            count++;
+          }
+          cursor.continue();
+        } else {
+          resolve(count);
+        }
+      };
+      req.onerror = () => reject((req as any).error);
+    }
+  });
+}

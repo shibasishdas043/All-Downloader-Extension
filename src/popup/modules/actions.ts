@@ -3,6 +3,8 @@
 // ============================================================
 import { MSG, DOWNLOAD_STATE, UI } from '../../shared/constants.js';
 import { isValidUrl } from '../../shared/utils.js';
+import { streamChunksToDisk } from '../../shared/direct-saver.js';
+import { getChunkCount } from '../../background/storage.js';
 import { sendMsg } from './api.js';
 import { downloads, getAllDownloads } from './state.js';
 import { $urlInput, $filenameInput, hideModal, $list, $empty } from './dom.js';
@@ -127,4 +129,62 @@ export async function openDashboard(view: string = 'settings'): Promise<void> {
   // Fallback to background service worker message
   await sendMsg({ type: MSG.OPEN_DASHBOARD, view });
   setTimeout(() => window.close(), 100);
+}
+
+export async function saveDlToDisk(id: string): Promise<void> {
+  const dl = downloads[id];
+  if (!dl) return;
+
+  const itemEl = $list.querySelector(`.dl-item[data-id="${id}"]`) as HTMLElement | null;
+  const btn = itemEl?.querySelector('.ctrl-save-disk') as HTMLButtonElement | null;
+  if (btn) {
+    btn.classList.add('loading');
+    btn.disabled = true;
+  }
+
+  const speedEl = itemEl?.querySelector('.dl-speed') as HTMLElement | null;
+  const fillEl  = itemEl?.querySelector('.dl-progress-fill') as HTMLElement | null;
+  if (speedEl) speedEl.textContent = 'Saving to disk…';
+
+  try {
+    const chunkCount = dl.totalChunks || dl.chunkCount || (await getChunkCount(id)) || 1;
+    const totalSize = dl.filesize || dl.total || dl.receivedBytes || dl.received || 0;
+
+    const res = await streamChunksToDisk(
+      id,
+      dl.filename,
+      chunkCount,
+      totalSize,
+      dl.mimeType || undefined,
+      (_written, _total, pct) => {
+        if (speedEl) speedEl.textContent = `Saving ${pct}%…`;
+        if (fillEl)  fillEl.style.width = `${pct}%`;
+      }
+    );
+
+    if (res.success) {
+      dl.isReadyToSave = false;
+      dl.state = DOWNLOAD_STATE.COMPLETED;
+      dl.status = DOWNLOAD_STATE.COMPLETED;
+      dl.percent = 100;
+      dl.progress = 100;
+      updateItem(id);
+      updateStatusBar();
+    } else if (res.cancelled) {
+      if (speedEl) speedEl.textContent = 'Ready to Save';
+    } else {
+      console.error('[ADL Save to Disk Error]:', res.error);
+      alert(`Save failed: ${res.error}`);
+      if (speedEl) speedEl.textContent = 'Ready to Save';
+    }
+  } catch (err: any) {
+    console.error('[ADL Save to Disk Exception]:', err);
+    alert(`Save failed: ${err?.message || err}`);
+    if (speedEl) speedEl.textContent = 'Ready to Save';
+  } finally {
+    if (btn) {
+      btn.classList.remove('loading');
+      btn.disabled = false;
+    }
+  }
 }
