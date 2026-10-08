@@ -20,6 +20,9 @@ export interface SnifferDOMRefs {
   cntVideo: HTMLElement;
   cntAudio: HTMLElement;
   cntDocument: HTMLElement;
+  targetUrlInput?: HTMLInputElement;
+  scanBtn?: HTMLElement;
+  tabsDatalist?: HTMLDataListElement;
 }
 
 export class SnifferController {
@@ -65,13 +68,15 @@ export class SnifferController {
       const selected = this.items.filter((it) => this.selectedUrls.has(it.url));
       if (selected.length === 0) return;
       this.refs.downloadBtn.disabled = true;
-      this.refs.downloadBtn.textContent = `Queuing ${selected.length}…`;
+      const btnSpan = this.refs.downloadBtn.querySelector('span');
+      if (btnSpan) btnSpan.textContent = `Queuing (${selected.length})…`;
+      else this.refs.downloadBtn.textContent = `Queuing (${selected.length})…`;
       try {
         await this.onDownloadBatch(selected);
         this.hide();
       } finally {
         this.refs.downloadBtn.disabled = false;
-        this.refs.downloadBtn.textContent = 'Download Selected';
+        this.updateSelectionState();
       }
     });
 
@@ -84,13 +89,32 @@ export class SnifferController {
         this.renderList();
       });
     });
+
+    // Target URL scanning
+    this.refs.scanBtn?.addEventListener('click', () => {
+      const url = this.refs.targetUrlInput?.value.trim() || '';
+      this.scan(url);
+    });
+
+    this.refs.targetUrlInput?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const url = this.refs.targetUrlInput?.value.trim() || '';
+        this.scan(url);
+      }
+    });
+
+    this.refs.targetUrlInput?.addEventListener('change', () => {
+      const url = this.refs.targetUrlInput?.value.trim() || '';
+      if (url) this.scan(url);
+    });
   }
 
-  public async open(): Promise<void> {
-    this.refs.modal.classList.remove('hidden');
-    this.refs.modal.hidden = false;
+  public async scan(url?: string): Promise<void> {
     this.refs.loading.classList.remove('hidden');
+    this.refs.loading.hidden = false;
     this.refs.empty.classList.add('hidden');
+    this.refs.empty.hidden = true;
     this.refs.list.innerHTML = '';
     this.selectedUrls.clear();
     this.items = [];
@@ -100,12 +124,29 @@ export class SnifferController {
 
     try {
       const response = await new Promise<any>((resolve) => {
-        chrome.runtime.sendMessage({ type: MSG.SNIFF_PAGE }, (res) => {
+        chrome.runtime.sendMessage({ type: MSG.SNIFF_PAGE, payload: { url } }, (res) => {
           resolve(res || { ok: false, error: chrome.runtime.lastError?.message });
         });
       });
 
       this.refs.loading.classList.add('hidden');
+      this.refs.loading.hidden = true;
+
+      if (response?.pageUrl && this.refs.targetUrlInput) {
+        this.refs.targetUrlInput.value = response.pageUrl;
+      }
+
+      if (Array.isArray(response?.availableTabs) && this.refs.tabsDatalist) {
+        this.refs.tabsDatalist.innerHTML = '';
+        response.availableTabs.forEach((tab: any) => {
+          if (tab.url) {
+            const opt = document.createElement('option');
+            opt.value = tab.url;
+            opt.label = tab.title || tab.url;
+            this.refs.tabsDatalist!.appendChild(opt);
+          }
+        });
+      }
 
       if (response && response.ok && Array.isArray(response.items)) {
         this.items = response.items;
@@ -114,13 +155,23 @@ export class SnifferController {
         this.renderList();
       } else {
         this.refs.empty.classList.remove('hidden');
+        this.refs.empty.hidden = false;
         this.refs.empty.textContent = response?.error || 'No downloadable resources found on active page';
       }
     } catch (err: any) {
       this.refs.loading.classList.add('hidden');
+      this.refs.loading.hidden = true;
       this.refs.empty.classList.remove('hidden');
+      this.refs.empty.hidden = false;
       this.refs.empty.textContent = err?.message || 'Failed to scan resources';
     }
+  }
+
+  public async open(): Promise<void> {
+    this.refs.modal.classList.remove('hidden');
+    this.refs.modal.hidden = false;
+    const initialUrl = this.refs.targetUrlInput?.value.trim() || undefined;
+    await this.scan(initialUrl);
   }
 
   public hide(): void {
@@ -174,12 +225,14 @@ export class SnifferController {
 
     if (visible.length === 0) {
       this.refs.empty.classList.remove('hidden');
+      this.refs.empty.hidden = false;
       this.refs.empty.textContent = 'No matching resources found';
       this.updateSelectionState();
       return;
     }
 
     this.refs.empty.classList.add('hidden');
+    this.refs.empty.hidden = true;
     const frag = document.createDocumentFragment();
 
     visible.forEach((it) => {
@@ -190,8 +243,9 @@ export class SnifferController {
       const isImg = it.type === 'image' && it.url.startsWith('http');
       const safeFilename = this.escapeHtml(it.filename);
       const safeUrl = this.escapeHtml(it.url);
+      const displayUrl = this.escapeHtml(it.url.replace(/^https?:\/\//i, ''));
       const safeRes = it.resolution ? this.escapeHtml(it.resolution) : '';
-      const safeOrigin = it.origin ? this.escapeHtml(it.origin.toUpperCase()) : '';
+      const safeOrigin = it.origin && it.origin.toLowerCase() !== 'link' ? this.escapeHtml(it.origin.toUpperCase()) : '';
 
       row.innerHTML = `
         <label class="sniffer-check-label">
@@ -210,7 +264,7 @@ export class SnifferController {
             ${safeRes ? `<span class="sniffer-badge-res">${safeRes}</span>` : ''}
             ${safeOrigin ? `<span class="sniffer-badge-origin">${safeOrigin}</span>` : ''}
           </div>
-          <span class="sniffer-url" title="${safeUrl}">${safeUrl}</span>
+          <span class="sniffer-url" title="${safeUrl}">${displayUrl}</span>
         </div>
       `;
 
@@ -226,6 +280,12 @@ export class SnifferController {
         this.updateSelectionState();
       });
 
+      row.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('.sniffer-check-label')) return;
+        check.checked = !check.checked;
+        check.dispatchEvent(new Event('change'));
+      });
+
       frag.appendChild(row);
     });
 
@@ -239,6 +299,14 @@ export class SnifferController {
 
     this.refs.selectedCountLabel.textContent = `${count} selected`;
     this.refs.downloadBtn.disabled = count === 0;
+
+    const btnSpan = this.refs.downloadBtn.querySelector('span');
+    const label = count > 0 ? `Download (${count})` : 'Download Selected';
+    if (btnSpan) {
+      btnSpan.textContent = label;
+    } else {
+      this.refs.downloadBtn.textContent = label;
+    }
 
     if (visible.length > 0 && visible.every((it) => this.selectedUrls.has(it.url))) {
       this.refs.selectAllCheckbox.checked = true;

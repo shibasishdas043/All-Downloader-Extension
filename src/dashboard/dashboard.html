@@ -34,7 +34,7 @@
       </div>
       <div class="brand-text">
         <span class="brand-name">All Downloader</span>
-        <span class="brand-version">v1.0.5</span>
+        <span class="brand-version">v1.0.6</span>
       </div>
     </div>
 
@@ -580,15 +580,30 @@
       </div>
 
       <div class="sniffer-controls">
+        <div class="sniffer-url-bar">
+          <div class="sniffer-url-inner">
+            <svg class="sniffer-url-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+            <input type="url" id="sniffer-target-url" placeholder="Page URL to scan (e.g. https://...)" list="sniffer-open-tabs" autocomplete="off" spellcheck="false" />
+            <datalist id="sniffer-open-tabs"></datalist>
+            <button type="button" class="sniffer-btn-scan" id="sniffer-btn-scan" title="Scan this page URL">Scan</button>
+          </div>
+        </div>
         <div class="sniffer-tabs">
-          <button class="sniffer-tab active" data-type="all">All (<span id="sniff-cnt-all">0</span>)</button>
-          <button class="sniffer-tab" data-type="image">Images (<span id="sniff-cnt-image">0</span>)</button>
-          <button class="sniffer-tab" data-type="video">Video (<span id="sniff-cnt-video">0</span>)</button>
-          <button class="sniffer-tab" data-type="audio">Audio (<span id="sniff-cnt-audio">0</span>)</button>
-          <button class="sniffer-tab" data-type="document">Docs (<span id="sniff-cnt-document">0</span>)</button>
+          <button class="sniffer-tab active" data-type="all">All <span class="sniffer-tab-count" id="sniff-cnt-all">0</span></button>
+          <button class="sniffer-tab" data-type="image">Images <span class="sniffer-tab-count" id="sniff-cnt-image">0</span></button>
+          <button class="sniffer-tab" data-type="video">Video <span class="sniffer-tab-count" id="sniff-cnt-video">0</span></button>
+          <button class="sniffer-tab" data-type="audio">Audio <span class="sniffer-tab-count" id="sniff-cnt-audio">0</span></button>
+          <button class="sniffer-tab" data-type="document">Docs <span class="sniffer-tab-count" id="sniff-cnt-document">0</span></button>
         </div>
         <div class="sniffer-search-wrap">
-          <input type="text" id="sniffer-filter" class="form-input" placeholder="Filter by name / extension…" />
+          <div class="sniffer-search-box">
+            <svg class="sniffer-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" id="sniffer-filter" class="form-input" placeholder="Filter by name / extension…" autocomplete="off" spellcheck="false" />
+          </div>
         </div>
       </div>
 

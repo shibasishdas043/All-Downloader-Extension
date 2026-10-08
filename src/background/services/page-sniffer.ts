@@ -190,7 +190,13 @@ export function scrapePageMediaAndLinks(): SniffedMediaItem[] {
       return;
     }
 
+    // Do not include the host page itself unless it has a recognized media extension
+    const pageUrlClean = (document.baseURI || window.location.href).split('#')[0].split('?')[0];
+    const fullUrlClean = fullUrl.split('#')[0].split('?')[0];
     const { filename, ext } = resolveFilenameAndExt(fullUrl, options.explicitFilename, options.title);
+    if (pageUrlClean === fullUrlClean && !IMAGE_EXTS.has(ext) && !VIDEO_EXTS.has(ext) && !AUDIO_EXTS.has(ext) && !DOC_EXTS.has(ext)) {
+      return;
+    }
 
     let resolvedType = options.defaultType;
     if (IMAGE_EXTS.has(ext)) resolvedType = 'image';
@@ -525,27 +531,54 @@ export function scrapePageMediaAndLinks(): SniffedMediaItem[] {
           const type = (obj['@type'] || '').toString().toLowerCase();
           const name = obj.name || obj.headline || '';
 
-          if (type.includes('image') || obj.image) {
-            const imgUrl = typeof obj.image === 'string' ? obj.image : obj.image?.url || obj.contentUrl || obj.url;
-            if (typeof imgUrl === 'string') {
+          function extractUrls(target: any): string[] {
+            if (!target) return [];
+            if (typeof target === 'string') return [target];
+            if (Array.isArray(target)) {
+              return target.flatMap(extractUrls);
+            }
+            if (typeof target === 'object') {
+              if (target.url && typeof target.url === 'string') return [target.url];
+              if (target.contentUrl && typeof target.contentUrl === 'string') return [target.contentUrl];
+            }
+            return [];
+          }
+
+          if (obj.image) {
+            extractUrls(obj.image).forEach((imgUrl) => {
+              addResource(imgUrl, { title: name, defaultType: 'image', origin: 'json-ld' });
+            });
+          } else if (type.includes('image')) {
+            const imgUrl = typeof obj.contentUrl === 'string' ? obj.contentUrl : (typeof obj.url === 'string' ? obj.url : undefined);
+            if (imgUrl) {
               addResource(imgUrl, { title: name, defaultType: 'image', origin: 'json-ld' });
             }
           }
+
           if (obj.thumbnailUrl || obj.thumbnail) {
-            const thumbUrl = typeof obj.thumbnailUrl === 'string' ? obj.thumbnailUrl : (typeof obj.thumbnail === 'string' ? obj.thumbnail : obj.thumbnail?.url);
-            if (typeof thumbUrl === 'string') {
+            extractUrls(obj.thumbnailUrl || obj.thumbnail).forEach((thumbUrl) => {
               addResource(thumbUrl, { title: `${name} (Thumbnail)`.trim(), defaultType: 'image', origin: 'json-ld' });
-            }
+            });
           }
-          if (type.includes('video') || obj.video) {
-            const vidUrl = typeof obj.video === 'string' ? obj.video : obj.video?.contentUrl || obj.contentUrl || obj.embedUrl;
-            if (typeof vidUrl === 'string') {
+
+          if (obj.video) {
+            extractUrls(obj.video).forEach((vidUrl) => {
+              addResource(vidUrl, { title: name, defaultType: 'video', origin: 'json-ld' });
+            });
+          } else if (type.includes('video')) {
+            const vidUrl = typeof obj.contentUrl === 'string' ? obj.contentUrl : undefined;
+            if (vidUrl) {
               addResource(vidUrl, { title: name, defaultType: 'video', origin: 'json-ld' });
             }
           }
-          if (type.includes('audio') || obj.audio) {
-            const audUrl = typeof obj.audio === 'string' ? obj.audio : obj.audio?.contentUrl || obj.contentUrl;
-            if (typeof audUrl === 'string') {
+
+          if (obj.audio) {
+            extractUrls(obj.audio).forEach((audUrl) => {
+              addResource(audUrl, { title: name, defaultType: 'audio', origin: 'json-ld' });
+            });
+          } else if (type.includes('audio')) {
+            const audUrl = typeof obj.contentUrl === 'string' ? obj.contentUrl : undefined;
+            if (audUrl) {
               addResource(audUrl, { title: name, defaultType: 'audio', origin: 'json-ld' });
             }
           }
@@ -564,3 +597,145 @@ export function scrapePageMediaAndLinks(): SniffedMediaItem[] {
 
   return Array.from(itemsMap.values());
 }
+
+/**
+ * Parses raw HTML string and extracts media items and downloadable links.
+ * Used when scanning arbitrary URLs or when executeScript cannot be injected.
+ */
+export function parseHtmlMediaAndLinks(html: string, baseUrl: string): SniffedMediaItem[] {
+  const itemsMap = new Map<string, SniffedMediaItem>();
+
+  const IMAGE_EXTS = new Set([
+    'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico',
+    'tiff', 'tif', 'avif', 'heic', 'heif', 'raw', 'psd'
+  ]);
+  const VIDEO_EXTS = new Set([
+    'mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'm4v',
+    'ts', '3gp', 'ogv', 'm3u8', 'mpd', 'f4m', 'ism', 'vob', 'divx'
+  ]);
+  const AUDIO_EXTS = new Set([
+    'mp3', 'wav', 'ogg', 'aac', 'flac', 'm4a', 'wma', 'opus',
+    'alac', 'aiff', 'mid', 'midi'
+  ]);
+  const DOC_EXTS = new Set([
+    'pdf', 'epub', 'mobi', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+    'odt', 'ods', 'odp', 'txt', 'rtf', 'csv', 'tsv', 'md',
+    'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'zst',
+    'iso', 'img', 'dmg', 'vhd', 'bin', 'exe', 'msi', 'apk',
+    'deb', 'rpm', 'pkg', 'torrent', 'vtt', 'srt'
+  ]);
+
+  function normalizeUrl(raw: string): string | null {
+    if (!raw) return null;
+    let trimmed = raw.trim();
+    if (trimmed.startsWith('//')) trimmed = 'https:' + trimmed;
+    try {
+      const u = new URL(trimmed, baseUrl);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      return u.href;
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveExt(urlStr: string): string {
+    try {
+      const parsed = new URL(urlStr);
+      const pathname = parsed.pathname || '';
+      const dot = pathname.lastIndexOf('.');
+      if (dot > 0 && dot < pathname.length - 1) {
+        return pathname.substring(dot + 1).toLowerCase();
+      }
+    } catch {}
+    return '';
+  }
+
+  function resolveFilename(urlStr: string): string {
+    try {
+      const parsed = new URL(urlStr);
+      const pathname = parsed.pathname || '';
+      const seg = pathname.split('/').filter(Boolean).pop();
+      if (seg) return decodeURIComponent(seg.split('?')[0]);
+    } catch {}
+    return 'resource';
+  }
+
+  function addItem(
+    urlStr: string,
+    origin: string,
+    forceType?: 'image' | 'video' | 'audio' | 'document' | 'link',
+    title?: string
+  ) {
+    const fullUrl = normalizeUrl(urlStr);
+    if (!fullUrl || itemsMap.has(fullUrl)) return;
+
+    const ext = resolveExt(fullUrl);
+    let type: 'image' | 'video' | 'audio' | 'document' | 'link' = forceType || 'link';
+    if (!forceType) {
+      if (IMAGE_EXTS.has(ext)) type = 'image';
+      else if (VIDEO_EXTS.has(ext)) type = 'video';
+      else if (AUDIO_EXTS.has(ext)) type = 'audio';
+      else if (DOC_EXTS.has(ext)) type = 'document';
+      else type = 'link';
+    }
+
+    const filename = resolveFilename(fullUrl);
+    itemsMap.set(fullUrl, {
+      url: fullUrl,
+      filename,
+      title: title || filename,
+      ext: ext || (type !== 'link' ? type : undefined),
+      type,
+      origin
+    });
+  }
+
+  // 1. Image tags (src, data-src, data-original)
+  const imgRegex = /<img[^>]+(?:src|data-src|data-original)=["']([^"']+)["'][^>]*>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = imgRegex.exec(html)) !== null) {
+    addItem(match[1], 'img', 'image');
+  }
+
+  // 2. Source tags
+  const sourceRegex = /<source[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  while ((match = sourceRegex.exec(html)) !== null) {
+    addItem(match[1], 'source');
+  }
+
+  // 3. Video tags
+  const videoRegex = /<video[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  while ((match = videoRegex.exec(html)) !== null) {
+    addItem(match[1], 'video', 'video');
+  }
+
+  // 4. Audio tags
+  const audioRegex = /<audio[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  while ((match = audioRegex.exec(html)) !== null) {
+    addItem(match[1], 'audio', 'audio');
+  }
+
+  // 5. Links (<a href="...">)
+  const aRegex = /<a[^>]+href=["']([^"']+)["'][^>]*>/gi;
+  while ((match = aRegex.exec(html)) !== null) {
+    addItem(match[1], 'link');
+  }
+
+  // 6. CSS background url(...)
+  const bgRegex = /url\(['"]?([^'"\)\s]+)['"]?\)/gi;
+  while ((match = bgRegex.exec(html)) !== null) {
+    if (!match[1].startsWith('data:')) {
+      addItem(match[1], 'css-bg');
+    }
+  }
+
+  // 7. Meta tags (og:image, og:video, twitter:image)
+  const metaRegex = /<meta[^>]+(?:property|name)=["'](og:image|og:video|twitter:image)["'][^>]+content=["']([^"']+)["'][^>]*>/gi;
+  while ((match = metaRegex.exec(html)) !== null) {
+    const isVideo = match[1].includes('video');
+    addItem(match[2], 'meta', isVideo ? 'video' : 'image');
+  }
+
+  return Array.from(itemsMap.values());
+}
+

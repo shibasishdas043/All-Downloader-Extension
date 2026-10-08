@@ -10,7 +10,7 @@ import { pauseDownload, cancelDownload } from '../download-engine.js';
 import type { DownloadState, ExtensionSettings } from '../../shared/types.js';
 import type { DownloadCoordinator } from './download-coordinator.js';
 import { openDashboard, broadcastMessage, updateBadge } from './badge-manager.js';
-import { scrapePageMediaAndLinks } from './page-sniffer.js';
+import { scrapePageMediaAndLinks, parseHtmlMediaAndLinks } from './page-sniffer.js';
 
 export async function handleMessage(
   msg: any,
@@ -225,21 +225,121 @@ export async function handleMessage(
     }
 
     case MSG.SNIFF_PAGE: {
-      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const tab = tabs[0];
-      if (!tab || !tab.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) {
-        return { ok: false, error: 'Cannot sniff resources on browser internal pages', items: [] };
+      const allTabs = await chrome.tabs.query({});
+      const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const currentTab = activeTabs[0];
+
+      // Filter valid web tabs (exclude internal chrome pages and extension dashboard)
+      const validWebTabs = allTabs.filter(t =>
+        t.id &&
+        t.url &&
+        !t.url.startsWith('chrome-extension://') &&
+        !t.url.startsWith('chrome://') &&
+        !t.url.startsWith('edge://') &&
+        !t.url.startsWith('about:') &&
+        !t.url.startsWith('devtools://')
+      );
+
+      const availableTabs = validWebTabs.map(t => ({
+        id: t.id!,
+        title: t.title || '',
+        url: t.url || ''
+      }));
+
+      let targetUrl = (msg.payload?.url || '').trim();
+      let targetTab: chrome.tabs.Tab | undefined;
+
+      if (targetUrl) {
+        if (!/^https?:\/\//i.test(targetUrl)) {
+          targetUrl = 'https://' + targetUrl;
+        }
+        // Check if an open tab matches targetUrl
+        targetTab = validWebTabs.find(t => 
+          t.url && (
+            t.url.toLowerCase() === targetUrl.toLowerCase() ||
+            t.url.toLowerCase().startsWith(targetUrl.toLowerCase()) ||
+            targetUrl.toLowerCase().startsWith(t.url.toLowerCase())
+          )
+        );
+      } else {
+        // If current active tab is a valid web page (e.g. scanning from popup on a website):
+        if (currentTab && currentTab.url && !currentTab.url.startsWith('chrome-extension://') && !currentTab.url.startsWith('chrome://') && !currentTab.url.startsWith('edge://') && !currentTab.url.startsWith('about:')) {
+          targetTab = currentTab;
+          targetUrl = currentTab.url;
+        } else if (validWebTabs.length > 0) {
+          // Dashboard scenario! Active tab is dashboard.html, so pick the most recent open web tab!
+          targetTab = validWebTabs[0];
+          targetUrl = validWebTabs[0].url || '';
+        }
       }
-      try {
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: scrapePageMediaAndLinks,
-        });
-        const items = results?.[0]?.result || [];
-        return { ok: true, items, pageTitle: tab.title || '', pageUrl: tab.url };
-      } catch (err: any) {
-        return { ok: false, error: err?.message || 'Failed to scan page resources', items: [] };
+
+      // 1. If target is an open browser tab, use executeScript for full live DOM + JS scraping
+      if (targetTab && targetTab.id) {
+        try {
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: targetTab.id },
+            func: scrapePageMediaAndLinks,
+          });
+          const items = results?.[0]?.result || [];
+          return {
+            ok: true,
+            items,
+            pageTitle: targetTab.title || targetUrl,
+            pageUrl: targetTab.url || targetUrl,
+            availableTabs
+          };
+        } catch {
+          // If executeScript fails (e.g. restricted permissions), fall back to fetch
+        }
       }
+
+      // 2. If target is a custom URL or tab execution failed, fetch HTML and parse resources
+      if (targetUrl && /^https?:\/\//i.test(targetUrl)) {
+        try {
+          const res = await fetch(targetUrl, {
+            headers: {
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            }
+          });
+          if (!res.ok) {
+            return {
+              ok: false,
+              error: `HTTP ${res.status}: Failed to load ${targetUrl}`,
+              items: [],
+              pageUrl: targetUrl,
+              availableTabs
+            };
+          }
+          const html = await res.text();
+          const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+          const pageTitle = titleMatch ? titleMatch[1].trim() : targetUrl;
+          const items = parseHtmlMediaAndLinks(html, targetUrl);
+          return {
+            ok: true,
+            items,
+            pageTitle,
+            pageUrl: targetUrl,
+            availableTabs
+          };
+        } catch (err: any) {
+          return {
+            ok: false,
+            error: err?.message || `Failed to fetch page at ${targetUrl}`,
+            items: [],
+            pageUrl: targetUrl,
+            availableTabs
+          };
+        }
+      }
+
+      // 3. No target URL provided and no active web tabs found
+      return {
+        ok: false,
+        error: 'No active webpage found. Please enter a page URL above to scan.',
+        items: [],
+        pageUrl: '',
+        availableTabs
+      };
     }
 
     default:

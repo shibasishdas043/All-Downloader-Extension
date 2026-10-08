@@ -34,6 +34,9 @@ export function bindModal(): void {
         cntVideo: document.getElementById('sniff-cnt-video')!,
         cntAudio: document.getElementById('sniff-cnt-audio')!,
         cntDocument: document.getElementById('sniff-cnt-document')!,
+        targetUrlInput: (document.getElementById('sniffer-target-url') as HTMLInputElement) || undefined,
+        scanBtn: document.getElementById('sniffer-btn-scan') || undefined,
+        tabsDatalist: (document.getElementById('sniffer-open-tabs') as HTMLDataListElement) || undefined,
       },
       async (items) => {
         for (const item of items) {
