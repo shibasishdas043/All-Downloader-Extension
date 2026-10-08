@@ -1,7 +1,7 @@
 // ============================================================
 //  All-Downloader — Download Engine Main Controller
 // ============================================================
-import { UI } from '../../shared/constants.js';
+import { UI, MAX_CHUNKABLE_SIZE_BYTES } from '../../shared/constants.js';
 import { SpeedTracker } from '../speed-tracker.js';
 import { clearChunks } from '../storage.js';
 import type { DownloadItem, ExtensionSettings, DownloadResult } from '../../shared/types.js';
@@ -84,8 +84,8 @@ export async function startDownload(
 
     const canChunk =
       acceptsRanges &&
-      totalSize > 0 &&
-      totalSize > settings.minChunkSizeMB * 1024 * 1024;
+      totalSize > settings.minChunkSizeMB * 1024 * 1024 &&
+      totalSize <= MAX_CHUNKABLE_SIZE_BYTES;
 
     const throttle = typeof rateLimiter === 'function'
       ? rateLimiter

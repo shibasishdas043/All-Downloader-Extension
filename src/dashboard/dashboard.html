@@ -121,6 +121,15 @@
           </svg>
           <input type="text" id="search-input" class="search-input" placeholder="Search downloads…" />
         </div>
+
+        <!-- Page Sniffer -->
+        <button class="btn-secondary" id="btn-page-sniffer" title="Scan active page for all media & links">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6z"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+          <span>Page Sniffer</span>
+        </button>
+
         <!-- Add Download -->
         <button class="btn-primary" id="btn-add-download">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -345,6 +354,19 @@
             </div>
           </div>
 
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Suppress Chrome's Download Shelf</span>
+              <span class="setting-desc">Hide Chrome's native bottom bar / bubble when All-Downloader is active</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input type="checkbox" id="setting-hide-shelf" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
 
           <div class="setting-row">
             <div class="setting-info">
@@ -481,10 +503,10 @@
           <div class="setting-row">
             <div class="setting-info">
               <span class="setting-label">Max History Items</span>
-              <span class="setting-desc">Maximum completed downloads to keep in history</span>
+              <span class="setting-desc">Maximum completed downloads to keep in history (minimum 10)</span>
             </div>
             <div class="setting-control">
-              <input type="number" id="setting-max-history" class="text-input-sm" min="10" max="9999" placeholder="500" />
+              <input type="number" id="setting-max-history" class="text-input-sm" min="10" max="99999" step="1" placeholder="500" />
             </div>
           </div>
           <div class="setting-row">
@@ -540,6 +562,56 @@
       <div class="modal-footer">
         <button class="btn-secondary" id="dash-modal-cancel">Cancel</button>
         <button class="btn-primary" id="dash-btn-start">Start Download</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       PAGE SNIFFER MODAL (DASHBOARD)
+  ═══════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="modal-sniffer" hidden>
+    <div class="modal modal-sniffer-content">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <h2>Page Sniffer</h2>
+          <span class="sniffer-sub" id="sniffer-page-title">Scanning active page resources…</span>
+        </div>
+        <button class="icon-btn-sm" id="sniffer-close">✕</button>
+      </div>
+
+      <div class="sniffer-controls">
+        <div class="sniffer-tabs">
+          <button class="sniffer-tab active" data-type="all">All (<span id="sniff-cnt-all">0</span>)</button>
+          <button class="sniffer-tab" data-type="image">Images (<span id="sniff-cnt-image">0</span>)</button>
+          <button class="sniffer-tab" data-type="video">Video (<span id="sniff-cnt-video">0</span>)</button>
+          <button class="sniffer-tab" data-type="audio">Audio (<span id="sniff-cnt-audio">0</span>)</button>
+          <button class="sniffer-tab" data-type="document">Docs (<span id="sniff-cnt-document">0</span>)</button>
+        </div>
+        <div class="sniffer-search-wrap">
+          <input type="text" id="sniffer-filter" class="form-input" placeholder="Filter by name / extension…" />
+        </div>
+      </div>
+
+      <div class="sniffer-list-wrap">
+        <div class="sniffer-loading" id="sniffer-loading">
+          <div class="spinner"></div>
+          <span>Scanning current page resources…</span>
+        </div>
+        <div class="sniffer-empty hidden" id="sniffer-empty">No resources found on this page</div>
+        <div class="sniffer-list" id="sniffer-list"></div>
+      </div>
+
+      <div class="modal-footer sniffer-footer">
+        <div class="sniffer-footer-left">
+          <label class="sniffer-select-all-label">
+            <input type="checkbox" id="sniffer-select-all" />
+            <span>Select All</span>
+          </label>
+          <span class="sniffer-sel-count" id="sniffer-sel-count">0 selected</span>
+        </div>
+        <button class="btn-primary" id="btn-sniffer-download" disabled>
+          <span>Download Selected</span>
+        </button>
       </div>
     </div>
   </div>

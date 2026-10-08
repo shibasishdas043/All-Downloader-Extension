@@ -10,6 +10,8 @@ import {
   startManualDownload, openDashboard, saveDlToDisk
 } from './actions.js';
 import { renderAll, updateItem, updateStatusBar, togglePopupChunkDrawer } from './renderer.js';
+import { sendMsg } from './api.js';
+import { SnifferController } from '../../shared/sniffer-controller.js';
 
 export function bindEvents(): void {
   $list.addEventListener('click', (e: MouseEvent) => {
@@ -53,10 +55,60 @@ export function bindEvents(): void {
     e.preventDefault();
     openDashboard('downloads');
   });
-  document.getElementById('btn-add')?.addEventListener('click', showModal);
+  document.getElementById('btn-add')?.addEventListener('click', async () => {
+    showModal();
+    if ($urlInput && !$urlInput.value) {
+      try {
+        const text = await navigator.clipboard.readText();
+        const trimmed = text ? text.trim() : '';
+        if (trimmed && (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('ftp://'))) {
+          $urlInput.value = trimmed;
+          document.getElementById('filename-input')?.focus();
+        }
+      } catch {
+        // Clipboard read denied / unavailable
+      }
+    }
+  });
   document.getElementById('modal-close')?.addEventListener('click', hideModal);
   document.getElementById('btn-start-download')?.addEventListener('click', startManualDownload);
   document.getElementById('btn-pause-all')?.addEventListener('click', pauseAll);
+
+  // Page Sniffer Modal
+  const snifferModal = document.getElementById('modal-sniffer');
+  if (snifferModal) {
+    const snifferController = new SnifferController(
+      {
+        modal: snifferModal,
+        pageTitle: document.getElementById('sniffer-page-title')!,
+        loading: document.getElementById('sniffer-loading')!,
+        empty: document.getElementById('sniffer-empty')!,
+        list: document.getElementById('sniffer-list')!,
+        filterInput: document.getElementById('sniffer-filter') as HTMLInputElement,
+        selectAllCheckbox: document.getElementById('sniffer-select-all') as HTMLInputElement,
+        selectedCountLabel: document.getElementById('sniffer-sel-count')!,
+        downloadBtn: document.getElementById('btn-sniffer-download') as HTMLButtonElement,
+        closeBtn: document.getElementById('sniffer-close')!,
+        cntAll: document.getElementById('sniff-cnt-all')!,
+        cntImage: document.getElementById('sniff-cnt-image')!,
+        cntVideo: document.getElementById('sniff-cnt-video')!,
+        cntAudio: document.getElementById('sniff-cnt-audio')!,
+        cntDocument: document.getElementById('sniff-cnt-document')!,
+      },
+      async (items) => {
+        for (const item of items) {
+          await sendMsg({
+            type: MSG.START_DOWNLOAD,
+            payload: { url: item.url, filename: item.filename }
+          });
+        }
+      }
+    );
+
+    document.getElementById('btn-sniffer')?.addEventListener('click', () => {
+      snifferController.open();
+    });
+  }
 
   $modalAdd?.addEventListener('click', (e: MouseEvent) => {
     if (e.target === $modalAdd) hideModal();

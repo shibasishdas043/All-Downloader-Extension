@@ -1,7 +1,7 @@
 // ============================================================
 //  All-Downloader — Download Coordinator Service
 // ============================================================
-import { MSG, DOWNLOAD_STATE, CATEGORY_FOLDER_NAMES, HEAVY_EXTENSIONS } from '../../shared/constants.js';
+import { MSG, DOWNLOAD_STATE, CATEGORY_FOLDER_NAMES, MAX_CHUNKABLE_SIZE_BYTES } from '../../shared/constants.js';
 import {
   generateId, getFilenameFromUrl, detectCategory,
   calcPercent, formatBytes
@@ -11,6 +11,7 @@ import {
   loadDownloads, saveDownloads, recordCompletion, clearChunks
 } from '../storage.js';
 import { startDownload, pauseDownload, cancelDownload, RateLimiter } from '../download-engine.js';
+import { probeUrl } from '../download-engine/probe.js';
 import { QueueManager } from '../queue-manager.js';
 import type { DownloadItem, ExtensionSettings, DownloadState } from '../../shared/types.js';
 import { sanitizeFilename, buildSavePath, escapeRegex } from './path-sanitizer.js';
@@ -24,42 +25,6 @@ import {
 import { showDownloadStartedToast } from './toast-manager.js';
 import { RightClickDetector, urlsMatch, getFilename } from './right-click-detector.js';
 import { keepAliveGuard } from './keep-alive.js';
-
-export function isHeavyDownload(item: chrome.downloads.DownloadItem): boolean {
-  const urlOrFn = item.filename || item.url || '';
-  try {
-    const url = new URL(urlOrFn, 'https://example.com');
-    const pathname = url.pathname;
-    const lastDot = pathname.lastIndexOf('.');
-    if (lastDot > 0 && lastDot < pathname.length - 1) {
-      const ext = pathname.substring(lastDot + 1).toLowerCase();
-      if (HEAVY_EXTENSIONS.has(ext)) return true;
-    }
-  } catch {
-    const lastDot = urlOrFn.lastIndexOf('.');
-    if (lastDot > 0 && lastDot < urlOrFn.length - 1) {
-      const ext = urlOrFn.substring(lastDot + 1).split(/[?#]/)[0].toLowerCase();
-      if (HEAVY_EXTENSIONS.has(ext)) return true;
-    }
-  }
-
-  // Check MIME type if available
-  const mime = (item.mime || '').toLowerCase();
-  if (
-    mime.includes('zip') ||
-    mime.includes('tar') ||
-    mime.includes('compressed') ||
-    mime.includes('archive') ||
-    mime.includes('iso') ||
-    mime.includes('diskimage') ||
-    (mime.includes('octet-stream') && (urlOrFn.includes('.iso') || urlOrFn.includes('.bin') || urlOrFn.includes('.zip'))) ||
-    mime.startsWith('video/')
-  ) {
-    return true;
-  }
-
-  return false;
-}
 
 export interface AddDownloadOptions {
   url: string;
@@ -75,6 +40,9 @@ export class DownloadCoordinator {
   public pendingChromeDownloads = new Map<number, PendingChromeDownload>();
   public pendingBlobSaves = new Map<string, { id: string; targetSavePath: string; safeFilename: string; fileSize: number }>();
   public ownBlobUrls = new Set<string>();
+  public nativeStreamDownloads = new Map<number, string>();
+  public extensionToChromeMap = new Map<string, number>();
+  private nativeStreamPollTimer: any = null;
   public rightClickDetector = new RightClickDetector();
   public queue: QueueManager;
   public rateLimiter: RateLimiter;
@@ -109,12 +77,26 @@ export class DownloadCoordinator {
         this.executeDownload(downloadId);
       },
     });
+    this.applyUiOptions();
   }
 
   public updateSettings(newSettings: ExtensionSettings): void {
+    if (newSettings.maxHistoryItems !== undefined) {
+      newSettings.maxHistoryItems = Math.max(10, Math.min(99999, Math.floor(newSettings.maxHistoryItems)));
+    }
     this.settings = newSettings;
     this.queue.setMaxConcurrent(newSettings.maxConcurrent);
     this.rateLimiter.setRate(newSettings.speedLimitKBps || 0);
+    this.applyUiOptions();
+    this.pruneHistory();
+  }
+
+  public applyUiOptions(): void {
+    if (typeof chrome !== 'undefined' && (chrome.downloads as any)?.setUiOptions) {
+      try {
+        (chrome.downloads as any).setUiOptions({ enabled: !this.settings.hideChromeShelf });
+      } catch {}
+    }
   }
 
   public async updateState(
@@ -239,6 +221,38 @@ export class DownloadCoordinator {
     // If chunks are already 100% downloaded in local storage and waiting to be saved to disk
     if (((dl as any).isReadyToSave && (dl.filesize || dl.receivedBytes)) || (dl.filesize && dl.receivedBytes && dl.receivedBytes >= dl.filesize)) {
       await this.saveExistingDownloadToDisk(dl);
+      return;
+    }
+
+    let totalBytes = dl.filesize || 0;
+    let rangeSupported = true;
+
+    // Format-agnostic protocol probe: If size is not yet known, probe via HEAD + Range probe
+    if (totalBytes <= 0) {
+      try {
+        const meta = await probeUrl(
+          dl.url,
+          new AbortController().signal
+        );
+        totalBytes = meta.contentLength || 0;
+        rangeSupported = meta.acceptsRanges;
+        if (totalBytes > 0) {
+          dl.filesize = totalBytes;
+          await upsertDownload(dl);
+        }
+      } catch {
+        // Probe error / offline, fallback to normal engine flow
+      }
+    }
+
+    // Format-agnostic stream routing:
+    // Any file > 1.5 GB is streamed directly to disk as a single unit via Chrome's native engine.
+    // This eliminates Chromium's 2GB Blob limit and Windows Defender atomic swap lock ("System busy" / FILE_TRANSIENT_ERROR).
+    // Files where range is unsupported or size is indeterminate/infinite also stream directly to disk.
+    const shouldStreamDirect = totalBytes > MAX_CHUNKABLE_SIZE_BYTES || (totalBytes <= 0 && !rangeSupported);
+    if (shouldStreamDirect) {
+      console.log(`[ADL] Routing download to streamlined single-unit direct stream (size: ${totalBytes}, rangeSupported: ${rangeSupported}):`, dl.url);
+      await this.executeSingleUnitStreamDownload(dl);
       return;
     }
 
@@ -375,7 +389,7 @@ export class DownloadCoordinator {
             return;
           }
 
-          // Mark download as merging/saving to disk
+          // Mark download as merging/saving to disk automatically via chrome.downloads.download
           await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
             category: resolvedCategory,
             mimeType: resolvedMime,
@@ -609,7 +623,9 @@ export class DownloadCoordinator {
         return;
       }
 
-      await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState);
+      await this.updateState(id, DOWNLOAD_STATE.MERGING as DownloadState, {
+        isReadyToSave: false,
+      });
       const safeFilename = sanitizeFilename(dl.filename);
       const resolvedCategory = dl.category || detectCategory(safeFilename, dl.mimeType || undefined);
       const categoryFolder = this.settings.organizeByCategoryFolders
@@ -706,11 +722,130 @@ export class DownloadCoordinator {
         filename: targetPath,
         conflictAction: 'uniquify',
       });
-      return false;
+      return true;
     }
 
     suggest();
     return false;
+  }
+
+  public isStreamDownload(id: string): boolean {
+    return this.extensionToChromeMap.has(id);
+  }
+
+  public async pauseStreamDownload(id: string): Promise<boolean> {
+    const chromeId = this.extensionToChromeMap.get(id);
+    if (!chromeId) return false;
+    try {
+      await chrome.downloads.pause(chromeId);
+      await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState);
+      broadcastMessage({ type: MSG.DOWNLOAD_PAUSED, id });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async resumeStreamDownload(id: string): Promise<boolean> {
+    const chromeId = this.extensionToChromeMap.get(id);
+    if (!chromeId) return false;
+    try {
+      await chrome.downloads.resume(chromeId);
+      await this.updateState(id, DOWNLOAD_STATE.DOWNLOADING as DownloadState);
+      broadcastMessage({ type: MSG.DOWNLOAD_RESUMED, id });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async cancelStreamDownload(id: string): Promise<boolean> {
+    const chromeId = this.extensionToChromeMap.get(id);
+    if (!chromeId) return false;
+    try {
+      await chrome.downloads.cancel(chromeId);
+      this.nativeStreamDownloads.delete(chromeId);
+      this.extensionToChromeMap.delete(id);
+      if (this.nativeStreamDownloads.size === 0) {
+        this.stopNativeStreamPolling();
+      }
+      this.queue.markDone(id);
+      await this.updateState(id, DOWNLOAD_STATE.CANCELLED as DownloadState);
+      broadcastMessage({ type: MSG.DOWNLOAD_CANCELLED, id });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  public async executeSingleUnitStreamDownload(dl: DownloadItem): Promise<void> {
+    const id = dl.id;
+    const safeFilename = sanitizeFilename(dl.filename);
+    const resolvedCategory = dl.category || detectCategory(safeFilename, dl.mimeType || undefined);
+    const categoryFolder = this.settings.organizeByCategoryFolders
+      ? (CATEGORY_FOLDER_NAMES[resolvedCategory] || undefined)
+      : undefined;
+    const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
+
+    await this.updateState(id, DOWNLOAD_STATE.CONNECTING as DownloadState, {
+      startedAt: Date.now(),
+      chunked: false,
+      savePath,
+    });
+
+    broadcastMessage({
+      type: MSG.DOWNLOAD_PROGRESS,
+      id,
+      state: DOWNLOAD_STATE.CONNECTING,
+      speed: 0,
+    });
+
+    try {
+      const chromeId = await new Promise<number>((resolve, reject) => {
+        chrome.downloads.download(
+          {
+            url: dl.url,
+            filename: savePath,
+            conflictAction: 'uniquify',
+            saveAs: false,
+          },
+          (downloadId) => {
+            if (chrome.runtime.lastError || !downloadId) {
+              reject(new Error(chrome.runtime.lastError?.message || 'Failed to start download stream'));
+            } else {
+              resolve(downloadId);
+            }
+          }
+        );
+      });
+
+      this.nativeStreamDownloads.set(chromeId, id);
+      this.extensionToChromeMap.set(id, chromeId);
+      this.startNativeStreamPolling();
+
+      await this.updateState(id, DOWNLOAD_STATE.DOWNLOADING as DownloadState, {
+        chromeDownloadId: chromeId,
+      });
+
+      broadcastMessage({
+        type: MSG.DOWNLOAD_PROGRESS,
+        id,
+        state: DOWNLOAD_STATE.DOWNLOADING,
+        speed: 0,
+      });
+    } catch (err: any) {
+      console.error('[ADL] Streamline single unit download failed to initiate:', err);
+      await this.updateState(id, DOWNLOAD_STATE.ERROR as DownloadState, {
+        error: err?.message || 'Failed to initiate download stream',
+        errorMessage: err?.message || 'Failed to initiate download stream',
+      });
+      this.queue.markDone(id);
+      broadcastMessage({
+        type: MSG.DOWNLOAD_ERROR,
+        id,
+        error: err?.message || 'Failed to initiate download stream',
+      });
+    }
   }
 
   public async restoreInProgressDownloads(): Promise<void> {
@@ -757,7 +892,210 @@ export class DownloadCoordinator {
     }
   }
 
+  public startNativeStreamPolling(): void {
+    if (this.nativeStreamPollTimer) return;
+    this.nativeStreamPollTimer = setInterval(() => {
+      this.pollNativeStreamDownloads();
+    }, 1000);
+  }
+
+  public stopNativeStreamPolling(): void {
+    if (this.nativeStreamPollTimer) {
+      clearInterval(this.nativeStreamPollTimer);
+      this.nativeStreamPollTimer = null;
+    }
+  }
+
+  private async pollNativeStreamDownloads(): Promise<void> {
+    if (this.nativeStreamDownloads.size === 0) {
+      this.stopNativeStreamPolling();
+      return;
+    }
+    if (typeof chrome === 'undefined' || !chrome.downloads?.search) return;
+
+    for (const [chromeId, extDlId] of this.nativeStreamDownloads.entries()) {
+      try {
+        const results = await chrome.downloads.search({ id: chromeId });
+        if (!results || !results[0]) continue;
+        const item = results[0];
+        const dl = this.downloadCache.get(extDlId);
+        if (!dl) continue;
+        const currentStatus = dl.status || (dl as any).state;
+        if (currentStatus !== DOWNLOAD_STATE.DOWNLOADING) continue;
+
+        const received = item.bytesReceived || dl.receivedBytes || 0;
+        const total = item.totalBytes > 0 ? item.totalBytes : (item.fileSize > 0 ? item.fileSize : (dl.filesize || 0));
+        const percent = total > 0 ? calcPercent(received, total) : dl.progress || 0;
+
+        const now = Date.now();
+        const lastBytes = dl.receivedBytes || 0;
+        const lastTime = (dl as any).lastProgressTime || dl.startedAt || now;
+        const timeDiff = Math.max(0.5, (now - lastTime) / 1000);
+        const speed = Math.max(0, Math.round((received - lastBytes) / timeDiff));
+        const remainingBytes = Math.max(0, total - received);
+        const eta = speed > 0 ? Math.round(remainingBytes / speed) : null;
+
+        await this.updateState(extDlId, DOWNLOAD_STATE.DOWNLOADING as DownloadState, {
+          received,
+          receivedBytes: received,
+          total: total || dl.filesize,
+          filesize: total || dl.filesize,
+          percent,
+          progress: percent,
+          speed,
+          eta,
+          lastProgressTime: now,
+        } as any);
+
+        broadcastMessage({
+          type: MSG.DOWNLOAD_PROGRESS,
+          id: extDlId,
+          received,
+          total: total || dl.filesize,
+          percent,
+          speed,
+          eta,
+          state: DOWNLOAD_STATE.DOWNLOADING,
+        });
+      } catch {
+        // ignore
+      }
+    }
+  }
+
   public async handleChromeDownloadChange(delta: chrome.downloads.DownloadDelta): Promise<void> {
+    const streamDownloadId = this.nativeStreamDownloads.get(delta.id);
+    if (streamDownloadId) {
+      const dl = this.downloadCache.get(streamDownloadId);
+      if (!dl) return;
+
+      const total = delta.totalBytes?.current ?? dl.filesize ?? 0;
+      const received = dl.receivedBytes ?? 0;
+      const percent = total > 0 ? calcPercent(received, total) : dl.progress || 0;
+
+      if (delta.state) {
+        if (delta.state.current === 'complete') {
+          this.nativeStreamDownloads.delete(delta.id);
+          this.extensionToChromeMap.delete(streamDownloadId);
+          if (this.nativeStreamDownloads.size === 0) {
+            this.stopNativeStreamPolling();
+          }
+          this.queue.markDone(streamDownloadId);
+
+          let finalFilename = dl.filename;
+          let finalPath = dl.savePath || dl.filename;
+          let finalSize = total || dl.filesize || dl.receivedBytes || 0;
+
+          if (typeof chrome !== 'undefined' && chrome.downloads?.search) {
+            try {
+              const res = await chrome.downloads.search({ id: delta.id });
+              if (res && res[0]) {
+                if (res[0].filename) {
+                  finalPath = res[0].filename;
+                  finalFilename = getFilename(res[0].filename) || dl.filename;
+                }
+                const actualSize = res[0].fileSize || res[0].totalBytes || res[0].bytesReceived || 0;
+                if (actualSize > 0) {
+                  finalSize = actualSize;
+                }
+              }
+            } catch {}
+          }
+
+          const updated = await this.updateState(streamDownloadId, DOWNLOAD_STATE.COMPLETED as DownloadState, {
+            completedAt: Date.now(),
+            received: finalSize,
+            receivedBytes: finalSize,
+            total: finalSize,
+            filesize: finalSize,
+            percent: 100,
+            progress: 100,
+            speed: 0,
+            eta: 0,
+            filename: finalFilename,
+            savePath: finalPath,
+            isReadyToSave: false,
+            error: null,
+            errorMessage: null,
+          });
+
+          await recordCompletion(finalSize, Date.now() - (dl.startedAt || Date.now()));
+          broadcastMessage({
+            type: MSG.DOWNLOAD_COMPLETED,
+            id: streamDownloadId,
+            filename: finalFilename,
+            total: finalSize,
+            download: updated,
+          });
+
+          if (this.settings.showNotifications) {
+            showNotification('Download Complete', finalFilename);
+          }
+          await this.pruneHistory();
+          return;
+        } else if (delta.state.current === 'interrupted') {
+          this.nativeStreamDownloads.delete(delta.id);
+          this.extensionToChromeMap.delete(streamDownloadId);
+          if (this.nativeStreamDownloads.size === 0) {
+            this.stopNativeStreamPolling();
+          }
+          this.queue.markDone(streamDownloadId);
+
+          const isUserCancel = delta.error?.current === 'USER_CANCELED';
+          if (isUserCancel) {
+            await this.updateState(streamDownloadId, DOWNLOAD_STATE.CANCELLED as DownloadState, {
+              speed: 0,
+              eta: null,
+            });
+            broadcastMessage({ type: MSG.DOWNLOAD_CANCELLED, id: streamDownloadId });
+          } else {
+            const errStr = delta.error?.current || 'Download interrupted';
+            await this.updateState(streamDownloadId, DOWNLOAD_STATE.ERROR as DownloadState, {
+              error: errStr,
+              errorMessage: errStr,
+              speed: 0,
+              eta: null,
+            });
+            broadcastMessage({ type: MSG.DOWNLOAD_ERROR, id: streamDownloadId, error: errStr });
+          }
+          return;
+        }
+      }
+
+      if (delta.filename?.current) {
+        const newFilename = getFilename(delta.filename.current) || delta.filename.current;
+        await this.updateState(streamDownloadId, (dl.status || DOWNLOAD_STATE.DOWNLOADING) as DownloadState, {
+          filename: newFilename,
+          savePath: delta.filename.current,
+        });
+      }
+
+      if (delta.totalBytes) {
+        const newTotal = delta.totalBytes.current ?? dl.filesize ?? 0;
+        const currentReceived = dl.receivedBytes ?? 0;
+        const currentPercent = newTotal > 0 ? calcPercent(currentReceived, newTotal) : dl.progress || 0;
+
+        await this.updateState(streamDownloadId, DOWNLOAD_STATE.DOWNLOADING as DownloadState, {
+          total: newTotal,
+          filesize: newTotal,
+          percent: currentPercent,
+          progress: currentPercent,
+        });
+
+        broadcastMessage({
+          type: MSG.DOWNLOAD_PROGRESS,
+          id: streamDownloadId,
+          received: currentReceived,
+          total: newTotal,
+          percent: currentPercent,
+          speed: dl.speed || 0,
+          eta: dl.eta ?? null,
+          state: DOWNLOAD_STATE.DOWNLOADING,
+        });
+      }
+      return;
+    }
+
     const pending = this.pendingChromeDownloads.get(delta.id);
     if (!pending) return;
 
@@ -836,6 +1174,33 @@ export class DownloadCoordinator {
         const errorCode = delta.error?.current || 'unknown';
         console.warn('[ADL Save Interrupted]:', errorCode, 'Chrome Download ID:', delta.id);
 
+        // FILE_TRANSIENT_ERROR ("System busy") on Windows occurs when Windows Defender / antivirus
+        // briefly locks the multi-GB .crdownload file right at completion while scanning it, preventing
+        // Chrome from renaming it immediately.
+        // Auto-resume after a short delay so Chrome can complete the atomic rename once scanning finishes!
+        const isTransientError = errorCode === 'FILE_TRANSIENT_ERROR';
+        const saveRetryBudgetKey = `save_transient_retry_${delta.id}`;
+        const saveRetries = this.autoRetryBudget.get(saveRetryBudgetKey) ?? 0;
+        const MAX_TRANSIENT_RETRIES = 4;
+        const TRANSIENT_DELAYS = [1_500, 3_000, 5_000, 8_000];
+
+        if (!isUserCancel && isTransientError && saveRetries < MAX_TRANSIENT_RETRIES) {
+          this.autoRetryBudget.set(saveRetryBudgetKey, saveRetries + 1);
+          const delay = TRANSIENT_DELAYS[saveRetries];
+          console.warn(`[ADL] FILE_TRANSIENT_ERROR ("System busy") — auto-resuming Chrome download ${delta.id} in ${delay / 1000}s (attempt ${saveRetries + 1}/${MAX_TRANSIENT_RETRIES}) for: ${pending.safeFilename}`);
+
+          setTimeout(() => {
+            chrome.downloads.resume(delta.id, () => {
+              if (chrome.runtime.lastError) {
+                console.warn('[ADL] chrome.downloads.resume notification:', chrome.runtime.lastError.message);
+              }
+            });
+          }, delay);
+          return;
+        }
+
+        this.autoRetryBudget.delete(saveRetryBudgetKey);
+
         if (this.pendingChromeDownloads.has(delta.id)) {
           keepAliveGuard.release();
         }
@@ -883,11 +1248,19 @@ export class DownloadCoordinator {
     const dlRecord: any = await getDownload(id);
     if (!dlRecord) return null;
 
+    // Safety guard: Never mark complete or clear chunks if reported save size is 0 or invalid
+    if (size !== undefined && size <= 0) {
+      console.warn('[ADL Coordinator] handleDirectSaveCompleted received 0 size, refusing to clear chunks.');
+      return null;
+    }
+
     const completedAt = Date.now();
     const resolvedSize = size || dlRecord?.filesize || dlRecord?.total || dlRecord?.receivedBytes || 0;
     const actualFilename = filename || dlRecord?.filename;
 
-    await clearChunks(id);
+    if (resolvedSize > 0) {
+      await clearChunks(id);
+    }
 
     const updatedDl = await this.updateState(id, DOWNLOAD_STATE.COMPLETED as DownloadState, {
       completedAt,
@@ -981,6 +1354,43 @@ export class DownloadCoordinator {
           return;
         }
       }
+    }
+
+    // Format-agnostic streamline: If the file is larger than 1.5 GB,
+    // do NOT cancel Chrome's download! Adopt it directly into the extension and let Chrome stream it to disk.
+    // This completely prevents Windows Defender "System busy" (FILE_TRANSIENT_ERROR) and 2GB blob limits!
+    if (item.totalBytes > MAX_CHUNKABLE_SIZE_BYTES) {
+      console.log(`[ADL] Intercepted large file (${item.totalBytes} bytes > 1.5GB). Adopting directly as single-unit stream:`, item.filename || item.url);
+      const dlId = generateId();
+      const safeFilename = item.filename ? getFilename(item.filename) : getFilenameFromUrl(item.url);
+      const newDl: DownloadItem = {
+        id: dlId,
+        url: item.url,
+        filename: safeFilename,
+        category: detectCategory(safeFilename, item.mime),
+        mimeType: item.mime || null,
+        filesize: item.totalBytes || 0,
+        receivedBytes: item.bytesReceived || 0,
+        progress: item.totalBytes > 0 ? calcPercent(item.bytesReceived, item.totalBytes) : 0,
+        speed: 0,
+        eta: null,
+        status: DOWNLOAD_STATE.DOWNLOADING as DownloadState,
+        createdAt: Date.now(),
+        startedAt: Date.now(),
+        chunked: false,
+        savePath: item.filename || safeFilename,
+      };
+
+      await upsertDownload(newDl);
+      this.downloadCache.set(dlId, newDl);
+      this.nativeStreamDownloads.set(item.id, dlId);
+      this.extensionToChromeMap.set(dlId, item.id);
+      this.startNativeStreamPolling();
+
+      broadcastMessage({ type: MSG.DOWNLOAD_ADDED, download: newDl });
+      updateBadge(this.downloadCache.values());
+      showDownloadStartedToast(safeFilename);
+      return; // Do NOT cancel! Let Chrome stream it directly in one single unit!
     }
 
     // Dynamically bypass interception for user-initiated right-click Save As (images, links, media, page)
@@ -1079,6 +1489,15 @@ export class DownloadCoordinator {
         revokeBlobUrl(blobUrl);
       }
     }
+    const chromeId = this.extensionToChromeMap.get(downloadId);
+    if (chromeId !== undefined) {
+      this.nativeStreamDownloads.delete(chromeId);
+      this.extensionToChromeMap.delete(downloadId);
+      if (this.nativeStreamDownloads.size === 0) {
+        this.stopNativeStreamPolling();
+      }
+    }
+    this.autoRetryBudget.delete(downloadId);
   }
 
   public clearFinishedDownloads(): void {

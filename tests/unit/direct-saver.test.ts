@@ -58,6 +58,7 @@ describe('Direct-to-Disk Stream Saver', () => {
 
     const mockWrites: any[] = [];
     const mockWritable = {
+      truncate: vi.fn().mockResolvedValue(undefined),
       write: vi.fn().mockImplementation(async (data) => {
         mockWrites.push(data);
       }),
@@ -68,6 +69,7 @@ describe('Direct-to-Disk Stream Saver', () => {
     const mockFileHandle = {
       name: 'Windows10.iso',
       createWritable: vi.fn().mockResolvedValue(mockWritable),
+      getFile: vi.fn().mockResolvedValue({ size: 8 }),
     };
 
     (globalThis as any).window.showSaveFilePicker = vi.fn().mockResolvedValue(mockFileHandle);
@@ -87,11 +89,43 @@ describe('Direct-to-Disk Stream Saver', () => {
     expect(res.success).toBe(true);
     expect(res.bytesWritten).toBe(8);
     expect(mockWrites.length).toBe(2);
+    expect(mockWrites[0].byteLength).toBe(4);
+    expect(mockWrites[1].byteLength).toBe(4);
     expect(mockWritable.close).toHaveBeenCalledTimes(1);
     expect(progressReports).toEqual([50, 100]);
 
     // Critical assertion: clearChunks must NOT be called by streamChunksToDisk
     expect(storage.clearChunks).not.toHaveBeenCalled();
+  });
+
+  test('streamChunksToDisk completes successfully even if Windows delays atomic swap rename on close', async () => {
+    const chunk0 = new Uint8Array([1, 2, 3, 4]);
+    vi.mocked(storage.loadChunk).mockResolvedValue(chunk0.buffer);
+
+    const invalidStateErr = new DOMException(
+      'An operation that depends on state cached in an interface object was made but the state had changed since it was read from disk',
+      'InvalidStateError'
+    );
+
+    const mockWritable = {
+      write: vi.fn(),
+      close: vi.fn().mockRejectedValue(invalidStateErr),
+      abort: vi.fn(),
+    };
+
+    const mockFileHandle = {
+      name: 'Windows10.iso',
+      createWritable: vi.fn().mockResolvedValue(mockWritable),
+      getFile: vi.fn().mockResolvedValue({ size: 4 }),
+    };
+
+    (globalThis as any).window.showSaveFilePicker = vi.fn().mockResolvedValue(mockFileHandle);
+
+    const res = await streamChunksToDisk('dl-locked', 'Windows10.iso', 1, 4);
+
+    expect(res.success).toBe(true);
+    expect(res.bytesWritten).toBe(4);
+    expect((globalThis as any).chrome.runtime.sendMessage).toHaveBeenCalled();
   });
 
   test('streamChunksToDisk aborts stream safely and preserves chunks if a chunk fails to load', async () => {

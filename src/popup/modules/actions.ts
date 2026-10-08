@@ -1,6 +1,3 @@
-// ============================================================
-//  All-Downloader — Popup User Actions
-// ============================================================
 import { MSG, DOWNLOAD_STATE, UI } from '../../shared/constants.js';
 import { isValidUrl } from '../../shared/utils.js';
 import { streamChunksToDisk } from '../../shared/direct-saver.js';
@@ -135,6 +132,16 @@ export async function saveDlToDisk(id: string): Promise<void> {
   const dl = downloads[id];
   if (!dl) return;
 
+  const totalSize = dl.filesize || dl.total || dl.receivedBytes || dl.received || 0;
+
+  // Extension popups in Chrome are destroyed as soon as the user clicks outside or switches
+  // windows (e.g. to File Explorer). This terminates multi-gigabyte ISO streaming mid-write.
+  // For files >= 500MB, open the persistent Dashboard tab where saving runs safely with live progress.
+  if (totalSize >= 500 * 1024 * 1024) {
+    await openDashboard('downloads');
+    return;
+  }
+
   const itemEl = $list.querySelector(`.dl-item[data-id="${id}"]`) as HTMLElement | null;
   const btn = itemEl?.querySelector('.ctrl-save-disk') as HTMLButtonElement | null;
   if (btn) {
@@ -148,7 +155,6 @@ export async function saveDlToDisk(id: string): Promise<void> {
 
   try {
     const chunkCount = dl.totalChunks || dl.chunkCount || (await getChunkCount(id)) || 1;
-    const totalSize = dl.filesize || dl.total || dl.receivedBytes || dl.received || 0;
 
     const res = await streamChunksToDisk(
       id,
@@ -175,12 +181,16 @@ export async function saveDlToDisk(id: string): Promise<void> {
     } else {
       console.error('[ADL Save to Disk Error]:', res.error);
       alert(`Save failed: ${res.error}`);
+      dl.isReadyToSave = true;
       if (speedEl) speedEl.textContent = 'Ready to Save';
+      updateItem(id);
     }
   } catch (err: any) {
     console.error('[ADL Save to Disk Exception]:', err);
     alert(`Save failed: ${err?.message || err}`);
+    dl.isReadyToSave = true;
     if (speedEl) speedEl.textContent = 'Ready to Save';
+    updateItem(id);
   } finally {
     if (btn) {
       btn.classList.remove('loading');

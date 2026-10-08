@@ -24,6 +24,8 @@ export async function probeUrl(
     let res: Response | null = null;
     let isRangeProbe = false;
 
+    let fallbackHeadRes: Response | null = null;
+
     // 1. First probe tier: HEAD request (lightweight metadata)
     try {
       const headRes = await fetch(url, {
@@ -33,7 +35,12 @@ export async function probeUrl(
         redirect: 'follow',
       });
       if (headRes.ok) {
-        res = headRes;
+        const cl = parseContentLength(headRes);
+        if (cl > 0) {
+          res = headRes;
+        } else {
+          fallbackHeadRes = headRes;
+        }
       }
     } catch {
       // Network error or timeout on HEAD — will fall back to GET Range probe
@@ -43,7 +50,7 @@ export async function probeUrl(
 
     // 2. Second probe tier: GET Range: bytes=0-0 fallback
     // Essential for CDNs (AWS CloudFront, Cloudflare, Google Drive, S3 presigned URLs)
-    // that return 405 Method Not Allowed or 403 Forbidden to HEAD requests
+    // that omit Content-Length on HEAD or return 405 Method Not Allowed to HEAD requests
     if (!res && !signal.aborted) {
       const getCtrl = new AbortController();
       const getTimer = setTimeout(() => getCtrl.abort(), DEFAULT_RANGE_TIMEOUT_MS);
@@ -63,10 +70,14 @@ export async function probeUrl(
           isRangeProbe = true;
         }
       } catch {
-        // Both HEAD and GET probe failed
+        // Both HEAD with length and GET probe failed
       } finally {
         clearTimeout(getTimer);
       }
+    }
+
+    if (!res && fallbackHeadRes) {
+      res = fallbackHeadRes;
     }
 
   if (!res) {

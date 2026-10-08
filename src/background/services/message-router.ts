@@ -10,6 +10,7 @@ import { pauseDownload, cancelDownload } from '../download-engine.js';
 import type { DownloadState, ExtensionSettings } from '../../shared/types.js';
 import type { DownloadCoordinator } from './download-coordinator.js';
 import { openDashboard, broadcastMessage, updateBadge } from './badge-manager.js';
+import { scrapePageMediaAndLinks } from './page-sniffer.js';
 
 export async function handleMessage(
   msg: any,
@@ -69,6 +70,10 @@ export async function handleMessage(
     }
 
     case MSG.PAUSE_DOWNLOAD: {
+      if (coordinator.isStreamDownload(msg.id)) {
+        await coordinator.pauseStreamDownload(msg.id);
+        return { ok: true };
+      }
       const dl = await getDownload(msg.id);
       const state = dl?.status || (dl as any)?.state;
       if (!dl || (state !== DOWNLOAD_STATE.DOWNLOADING && state !== DOWNLOAD_STATE.CONNECTING)) return { ok: false };
@@ -83,6 +88,10 @@ export async function handleMessage(
     }
 
     case MSG.RESUME_DOWNLOAD: {
+      if (coordinator.isStreamDownload(msg.id)) {
+        await coordinator.resumeStreamDownload(msg.id);
+        return { ok: true };
+      }
       const dl = await getDownload(msg.id);
       const state = dl?.status || (dl as any)?.state;
       if (!dl || (state !== DOWNLOAD_STATE.PAUSED && state !== DOWNLOAD_STATE.QUEUED)) return { ok: false };
@@ -94,6 +103,10 @@ export async function handleMessage(
     }
 
     case MSG.CANCEL_DOWNLOAD: {
+      if (coordinator.isStreamDownload(msg.id)) {
+        await coordinator.cancelStreamDownload(msg.id);
+        return { ok: true };
+      }
       coordinator.autoRetryBudget.delete(msg.id);
       coordinator.queue.remove(msg.id);
       await coordinator.updateState(msg.id, DOWNLOAD_STATE.CANCELLED as DownloadState, {
@@ -209,6 +222,24 @@ export async function handleMessage(
     case MSG.USER_DISMISSED_CONTEXT_MENU: {
       coordinator.rightClickDetector.dismiss(msg.payload?.pageUrl || '');
       return { ok: true };
+    }
+
+    case MSG.SNIFF_PAGE: {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      const tab = tabs[0];
+      if (!tab || !tab.id || !tab.url || tab.url.startsWith('chrome://') || tab.url.startsWith('edge://')) {
+        return { ok: false, error: 'Cannot sniff resources on browser internal pages', items: [] };
+      }
+      try {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          func: scrapePageMediaAndLinks,
+        });
+        const items = results?.[0]?.result || [];
+        return { ok: true, items, pageTitle: tab.title || '', pageUrl: tab.url };
+      } catch (err: any) {
+        return { ok: false, error: err?.message || 'Failed to scan page resources', items: [] };
+      }
     }
 
     default:

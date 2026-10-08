@@ -48,9 +48,11 @@ export interface DownloadItem {
   speed: number;
   eta: number | null;
   status: DownloadState;
+  state?: DownloadState;
   category: FileCategory;
   mimeType?: string | null;
   createdAt: number;
+  startedAt?: number | null;
   completedAt?: number | null;
   errorMessage?: string | null;
   error?: string | null;
@@ -66,8 +68,15 @@ export interface DownloadItem {
   savePath?: string;
   chromeDownloadId?: number | null;
   scheduledTime?: number | null;
+  scheduledAt?: number | null;
   isReadyToSave?: boolean;
   chunkCount?: number;
+  chunked?: boolean;
+  total?: number;
+  received?: number;
+  percent?: number;
+  referrer?: string;
+  autoReconnecting?: boolean;
 }
 
 export interface ExtensionSettings {
@@ -84,6 +93,20 @@ export interface ExtensionSettings {
   organizeByCategoryFolders: boolean;
   darkMode: boolean;
   maxHistoryItems: number;
+  hideChromeShelf?: boolean;
+}
+
+export interface SniffedMediaItem {
+  url: string;
+  filename: string;
+  title: string;
+  type: 'image' | 'video' | 'audio' | 'document' | 'link';
+  size?: number | null;
+  ext?: string;
+  width?: number;
+  height?: number;
+  resolution?: string;
+  origin?: string;
 }
 
 export interface ExtensionStats {

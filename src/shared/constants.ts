@@ -71,6 +71,7 @@ export const MSG = Object.freeze({
   CLEAR_QUEUE:         'CLEAR_QUEUE',
   SHOW_IN_FOLDER:      'SHOW_IN_FOLDER',
   DIRECT_SAVE_COMPLETED: 'DIRECT_SAVE_COMPLETED',
+  SNIFF_PAGE:          'SNIFF_PAGE',
 
   // Offscreen document messaging (Zero-copy Blob URL generation)
   OFFSCREEN_CREATE_BLOB_URL: 'OFFSCREEN_CREATE_BLOB_URL',
@@ -94,17 +95,11 @@ export const CATEGORY_FOLDER_NAMES: Record<FileCategory, string> = Object.freeze
   other:       'Other',
 });
 
-// ── Heavy / High-Bandwidth Extensions (Always Intercept) ──────
-export const HEAVY_EXTENSIONS = new Set<string>([
-  // Disk Images & Virtual Machines
-  'iso', 'img', 'bin', 'vhd', 'vhdx', 'vmdk', 'qcow2', 'dmg',
-  // Compressed & Multi-part Archives
-  'zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz', 'tgz', 'tbz2', 'zst', 'lzma', 'cab', 'wim', 'cpio',
-  // Installers & Executables & Packages
-  'exe', 'msi', 'apk', 'pkg', 'deb', 'rpm', 'appimage', 'run',
-  // High-bitrate Video & Media
-  'mp4', 'mkv', 'avi', 'mov', 'wmv', 'flv', 'webm', 'm4v', 'mpg', 'mpeg', 'ts', 'm2ts', 'vob',
-]);
+// ── Stream / Chunking Engine Limits ────────────────────────────
+// Maximum file size (1.5 GB) eligible for multi-segment parallel chunking.
+// Above 1.5 GB, downloads stream directly to disk as a single unit via Chrome's native engine
+// to eliminate Chromium's 2GB Blob limit and Windows Defender atomic swap lock ("System busy" / FILE_TRANSIENT_ERROR).
+export const MAX_CHUNKABLE_SIZE_BYTES = 1.5 * 1024 * 1024 * 1024; // 1,610,612,736 bytes (1.5 GB)
 
 // ── Storage Keys ─────────────────────────────────────────────
 export const STORAGE_KEY = Object.freeze({
@@ -128,6 +123,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   organizeByCategoryFolders: false, // subfolder per category (Videos, Archives, etc.)
   darkMode:                  true,
   maxHistoryItems:           500,
+  hideChromeShelf:           true,  // suppress Chrome's native download shelf / bubble
 });
 
 // ── UI Config ─────────────────────────────────────────────────

@@ -48,6 +48,9 @@ export async function bulkAction(msgType: string, onDone: () => void): Promise<v
   for (const id of ids) {
     if (msgType === MSG.DELETE_DOWNLOAD) {
       delete state.downloads[id];
+      state.rowCache.delete(id);
+      state.pendingProgressIds.delete(id);
+      state.expandedChunkIds.delete(id);
     } else if (msgType === MSG.CANCEL_DOWNLOAD && state.downloads[id]) {
       state.downloads[id].state = DOWNLOAD_STATE.CANCELLED;
       state.downloads[id].speed = 0;

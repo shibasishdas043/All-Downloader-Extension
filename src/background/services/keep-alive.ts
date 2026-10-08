@@ -35,7 +35,7 @@ export class ServiceWorkerKeepAliveGuard {
     if (typeof chrome !== 'undefined' && chrome.alarms) {
       try {
         chrome.alarms.create(ServiceWorkerKeepAliveGuard.ALARM_NAME, {
-          periodInMinutes: 0.5,
+          periodInMinutes: 1,
         });
       } catch {
         // ignore

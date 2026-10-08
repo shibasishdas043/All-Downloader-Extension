@@ -90,7 +90,8 @@ chrome.downloads.onChanged.addListener(async (delta) => {
 
 if (chrome.downloads.onDeterminingFilename) {
   chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
-    return coordinator.handleDeterminingFilename(item, suggest);
+    coordinator.handleDeterminingFilename(item, suggest);
+    return false;
   });
 }
 

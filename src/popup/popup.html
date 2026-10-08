@@ -29,12 +29,17 @@
       <span class="brand-name">All Downloader</span>
     </div>
     <div class="header-actions">
+      <button class="icon-btn" id="btn-sniffer" title="Page Sniffer (Scan Media & Links)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6z"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+      </button>
       <button class="icon-btn" id="btn-add" title="Add URL">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
       </button>
-      <button class="icon-btn" id="btn-dashboard" title="Settings">
+      <button class="icon-btn" id="btn-dashboard" title="Dashboard">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/>
           <rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>
@@ -93,9 +98,6 @@
   <!-- ═══════════════════════════════════════════════
        ADD URL MODAL
   ══════════════════════════════════════════════════ -->
-  <!-- ═══════════════════════════════════════════════
-       ADD URL MODAL
-  ══════════════════════════════════════════════════ -->
   <div class="modal-overlay" id="modal-add" hidden>
     <div class="modal">
       <div class="modal-header">
@@ -150,6 +152,68 @@
             <path d="M12 2v13M7 11l5 5 5-5"/>
             <path d="M3 18h18"/>
           </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       PAGE SNIFFER MODAL
+  ══════════════════════════════════════════════════ -->
+  <div class="modal-overlay hidden" id="modal-sniffer">
+    <div class="modal modal-sniffer-content">
+      <div class="modal-header">
+        <div class="modal-title-group">
+          <div class="modal-icon-badge">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6z"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+            </svg>
+          </div>
+          <div class="modal-title-texts">
+            <span class="modal-title-text">Page Sniffer</span>
+            <span class="sniffer-sub" id="sniffer-page-title">Scanning page resources…</span>
+          </div>
+        </div>
+        <button class="icon-btn modal-close-btn" id="sniffer-close" title="Close" aria-label="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sniffer-controls">
+        <div class="sniffer-tabs">
+          <button class="sniffer-tab active" data-type="all">All (<span id="sniff-cnt-all">0</span>)</button>
+          <button class="sniffer-tab" data-type="image">Images (<span id="sniff-cnt-image">0</span>)</button>
+          <button class="sniffer-tab" data-type="video">Video (<span id="sniff-cnt-video">0</span>)</button>
+          <button class="sniffer-tab" data-type="audio">Audio (<span id="sniff-cnt-audio">0</span>)</button>
+          <button class="sniffer-tab" data-type="document">Docs (<span id="sniff-cnt-document">0</span>)</button>
+        </div>
+        <div class="sniffer-search-wrap">
+          <input type="text" id="sniffer-filter" placeholder="Filter by name / extension…" />
+        </div>
+      </div>
+
+      <div class="sniffer-list-wrap">
+        <div class="sniffer-loading" id="sniffer-loading">
+          <div class="spinner"></div>
+          <span>Scanning current page resources…</span>
+        </div>
+        <div class="sniffer-empty hidden" id="sniffer-empty">No resources found on this page</div>
+        <div class="sniffer-list" id="sniffer-list"></div>
+      </div>
+
+      <div class="modal-footer sniffer-footer">
+        <div class="sniffer-footer-left">
+          <label class="sniffer-select-all-label">
+            <input type="checkbox" id="sniffer-select-all" />
+            <span>Select All</span>
+          </label>
+          <span class="sniffer-sel-count" id="sniffer-sel-count">0 selected</span>
+        </div>
+        <button class="btn-primary" id="btn-sniffer-download" disabled>
+          <span>Download Selected</span>
         </button>
       </div>
     </div>

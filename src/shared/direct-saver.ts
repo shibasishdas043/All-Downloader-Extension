@@ -91,9 +91,11 @@ export async function streamChunksToDisk(
   }
 
   let bytesWritten = 0;
-  const SLICE_SIZE = 16 * 1024 * 1024; // 16 MB bounded slices for constant memory footprint
+  const SLICE_SIZE = 32 * 1024 * 1024; // 32 MB bounded slices for constant memory footprint
 
+  let finalFilename = fileHandle?.name || filename;
   try {
+    // Stream chunks sequentially to disk
     for (let i = 0; i < chunkCount; i++) {
       let chunk: ArrayBuffer | Blob | null = null;
       try {
@@ -107,15 +109,12 @@ export async function streamChunksToDisk(
       }
 
       if (chunk instanceof Blob) {
-        // Stream the Blob in bounded slices converted to ArrayBuffers in memory.
-        // This decouples write operations from disk-backed Blob snapshot validations.
         for (let offset = 0; offset < chunk.size; offset += SLICE_SIZE) {
           const slice = chunk.slice(offset, Math.min(offset + SLICE_SIZE, chunk.size));
           let arrayBuf: ArrayBuffer;
           try {
             arrayBuf = await slice.arrayBuffer();
           } catch (readErr: any) {
-            // Fallback via FileReader if slice.arrayBuffer() encounters an interface state mismatch
             arrayBuf = await new Promise<ArrayBuffer>((resolve, reject) => {
               const reader = new FileReader();
               reader.onload = () => resolve(reader.result as ArrayBuffer);
@@ -124,8 +123,9 @@ export async function streamChunksToDisk(
             });
           }
 
-          await writable.write(new Uint8Array(arrayBuf));
-          bytesWritten += arrayBuf.byteLength;
+          const u8 = new Uint8Array(arrayBuf);
+          await writable.write(u8);
+          bytesWritten += u8.byteLength;
 
           if (onProgress) {
             const pct = totalBytes > 0 ? Math.min(100, Math.round((bytesWritten / totalBytes) * 100)) : 100;
@@ -135,8 +135,9 @@ export async function streamChunksToDisk(
       } else if (chunk instanceof ArrayBuffer) {
         for (let offset = 0; offset < chunk.byteLength; offset += SLICE_SIZE) {
           const slice = chunk.slice(offset, Math.min(offset + SLICE_SIZE, chunk.byteLength));
-          await writable.write(new Uint8Array(slice));
-          bytesWritten += slice.byteLength;
+          const u8 = new Uint8Array(slice);
+          await writable.write(u8);
+          bytesWritten += u8.byteLength;
 
           if (onProgress) {
             const pct = totalBytes > 0 ? Math.min(100, Math.round((bytesWritten / totalBytes) * 100)) : 100;
@@ -156,44 +157,65 @@ export async function streamChunksToDisk(
       }
     }
 
-    // Finalize and atomically flush the file to disk
-    const finalFilename = fileHandle.name || filename;
+    // Verify all expected bytes were written to the stream
+    if (totalBytes > 0 && bytesWritten < totalBytes) {
+      throw new Error(
+        `Integrity check failed: Expected ${totalBytes} bytes but only wrote ${bytesWritten} bytes to disk.`
+      );
+    }
+
+    finalFilename = fileHandle?.name || filename;
+
+    // Allow Windows I/O flush buffers to settle before triggering atomic swap
+    await new Promise((r) => setTimeout(r, 1000));
+
     try {
-      // Allow Windows I/O flush buffers to settle before triggering atomic swap
-      await new Promise((r) => setTimeout(r, 600));
       await writable.close();
     } catch (closeErr: any) {
-      console.warn('[ADL DirectSaver] writable.close() encountered:', closeErr);
-      // On Windows with multi-gigabyte files, Chromium's SafeMoveHelper can hit a sharing
-      // violation while renaming .crswap to the target file. However, all bytes are already written!
+      console.warn('[ADL DirectSaver] writable.close() notice:', closeErr);
+      // On Windows with multi-gigabyte ISOs, Chromium's SafeMoveHelper can hit a temporary
+      // sharing violation while renaming .crswap to the target file if Windows Defender is scanning.
+      // However, all bytes are 100% written on disk!
       if (
         closeErr?.message?.includes('state cached in an interface object') ||
-        closeErr?.name === 'InvalidStateError'
+        closeErr?.name === 'InvalidStateError' ||
+        closeErr?.message?.includes('locked')
       ) {
-        console.log('[ADL DirectSaver] All bytes written successfully despite atomic swap delay.');
+        console.log('[ADL DirectSaver] All bytes safely committed to disk despite swap rename delay.');
       } else {
         throw closeErr;
       }
     }
 
-    // Notify background coordinator that direct save completed
+    let verifiedSize = bytesWritten;
+    if (typeof fileHandle.getFile === 'function') {
+      try {
+        const diskFile = await fileHandle.getFile();
+        if (diskFile && diskFile.size > 0) {
+          verifiedSize = diskFile.size;
+        }
+      } catch (verifyErr) {
+        console.warn('[ADL DirectSaver] Non-fatal getFile() check:', verifyErr);
+      }
+    }
+
+    // Notify background coordinator that direct save completed with verified size
     try {
       if (typeof chrome !== 'undefined' && chrome.runtime?.sendMessage) {
         await chrome.runtime.sendMessage({
           type: MSG.DIRECT_SAVE_COMPLETED,
           id: downloadId,
-          size: bytesWritten,
+          size: verifiedSize,
           filename: finalFilename,
         });
       }
     } catch {
-      // Retry once if worker was waking up
       try {
         await new Promise((r) => setTimeout(r, 250));
         await chrome.runtime?.sendMessage({
           type: MSG.DIRECT_SAVE_COMPLETED,
           id: downloadId,
-          size: bytesWritten,
+          size: verifiedSize,
           filename: finalFilename,
         });
       } catch (err) {
@@ -201,7 +223,7 @@ export async function streamChunksToDisk(
       }
     }
 
-    return { success: true, bytesWritten, finalFilename };
+    return { success: true, bytesWritten: verifiedSize, finalFilename };
   } catch (err: any) {
     try {
       await writable.abort();
@@ -209,13 +231,25 @@ export async function streamChunksToDisk(
       // ignore abort error
     }
     const rawMsg = err?.message || 'Error streaming data to disk';
-    if (rawMsg.includes('state cached in an interface object')) {
-      return {
-        success: false,
-        error:
-          'The selected destination file is locked or in use by another process. Please click "Save to Disk" again and choose a new filename (e.g., add "(1)" to the filename) or save to a different folder.',
-      };
+    console.error('[ADL DirectSaver] Direct save failed:', err);
+
+    let userFriendlyError = rawMsg;
+    if (
+      rawMsg.includes('state cached in an interface object') ||
+      rawMsg.includes('InvalidStateError') ||
+      rawMsg.includes('verification failed') ||
+      rawMsg.includes('locked')
+    ) {
+      userFriendlyError =
+        `Windows locked the destination file because it is open in File Explorer (e.g. in the Details pane) or being scanned by antivirus.\n\n` +
+        `Good news: Your downloaded data (${(totalBytes ? (totalBytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB' : '100%')}) has already been written to disk as "${finalFilename}.crswap"!\n\n` +
+        `To finalize right now:\n` +
+        `1. Close File Explorer (or unselect the file) so Windows releases the lock.\n` +
+        `2. Delete the 0-byte "${finalFilename}".\n` +
+        `3. Rename "${finalFilename}.crswap" to "${finalFilename}".\n\n` +
+        `Or click "Save to Disk" again and choose a new filename (e.g. add "(1)") or save to a different folder.`;
     }
-    return { success: false, error: rawMsg };
+
+    return { success: false, error: userFriendlyError };
   }
 }

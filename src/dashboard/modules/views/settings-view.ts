@@ -13,6 +13,7 @@ export function loadSettingsUI(): void {
   const setVal = (id: string, val: any) => {
     const el = document.getElementById(id) as HTMLInputElement | null;
     if (!el) return;
+    if (el === document.activeElement) return; // Do not overwrite input if user is actively typing
     if (el.type === 'checkbox') {
       el.checked = Boolean(val);
     } else {
@@ -31,7 +32,8 @@ export function loadSettingsUI(): void {
   setVal('setting-preserve-chunks',       s.preserveChunksOnCancel);
   setVal('setting-verify-integrity',     s.verifyIntegrity);
   setVal('setting-notifications',        s.showNotifications);
-  setVal('setting-max-history',          s.maxHistoryItems);
+  setVal('setting-hide-shelf',           s.hideChromeShelf);
+  setVal('setting-max-history',          Math.max(10, s.maxHistoryItems || DEFAULT_SETTINGS.maxHistoryItems));
 
   const sMaxConcurrent = document.getElementById('setting-max-concurrent') as HTMLInputElement | null;
   const vMaxConcurrent = document.getElementById('val-max-concurrent') as HTMLElement | null;
@@ -97,6 +99,17 @@ export function bindSettings(onResetAll: () => void): void {
       return el.value;
     };
 
+    const rawHist = (document.getElementById('setting-max-history') as HTMLInputElement)?.value.trim();
+    let maxHistoryItems: number = DEFAULT_SETTINGS.maxHistoryItems;
+    if (rawHist !== '' && rawHist !== undefined) {
+      const parsed = parseInt(rawHist, 10);
+      maxHistoryItems = isNaN(parsed)
+        ? (state.settings?.maxHistoryItems || DEFAULT_SETTINGS.maxHistoryItems)
+        : Math.max(10, Math.min(99999, parsed));
+    } else if (state.settings?.maxHistoryItems) {
+      maxHistoryItems = Math.max(10, state.settings.maxHistoryItems);
+    }
+
     const newSettings: ExtensionSettings = {
       ...DEFAULT_SETTINGS,
       ...state.settings,
@@ -111,7 +124,8 @@ export function bindSettings(onResetAll: () => void): void {
       preserveChunksOnCancel:    Boolean(get('setting-preserve-chunks') ?? (state.settings?.preserveChunksOnCancel ?? DEFAULT_SETTINGS.preserveChunksOnCancel)),
       verifyIntegrity:           Boolean(get('setting-verify-integrity') ?? (state.settings?.verifyIntegrity ?? DEFAULT_SETTINGS.verifyIntegrity)),
       showNotifications:         Boolean(get('setting-notifications') ?? (state.settings?.showNotifications ?? DEFAULT_SETTINGS.showNotifications)),
-      maxHistoryItems:           Math.max(10, Math.min(9999, Math.floor(Number(get('setting-max-history')) || state.settings?.maxHistoryItems || DEFAULT_SETTINGS.maxHistoryItems))),
+      hideChromeShelf:           Boolean(get('setting-hide-shelf') ?? (state.settings?.hideChromeShelf ?? DEFAULT_SETTINGS.hideChromeShelf)),
+      maxHistoryItems,
       darkMode:                  Boolean(state.settings?.darkMode ?? DEFAULT_SETTINGS.darkMode),
     };
 
@@ -125,6 +139,10 @@ export function bindSettings(onResetAll: () => void): void {
       if (qSlider) {
         qSlider.value = String(res.settings.maxConcurrent);
         updateSliderFill(qSlider, qVal);
+      }
+      const elMaxHist = document.getElementById('setting-max-history') as HTMLInputElement | null;
+      if (elMaxHist && elMaxHist !== document.activeElement) {
+        elMaxHist.value = String(res.settings.maxHistoryItems);
       }
       if ($status) {
         $status.textContent = isAutoSave ? 'Saved' : 'Settings Saved';
@@ -149,6 +167,7 @@ export function bindSettings(onResetAll: () => void): void {
     'setting-preserve-chunks',
     'setting-verify-integrity',
     'setting-notifications',
+    'setting-hide-shelf',
   ].forEach((id) => {
     document.getElementById(id)?.addEventListener('change', () => {
       saveAllSettings(true);
@@ -163,15 +182,14 @@ export function bindSettings(onResetAll: () => void): void {
     });
   });
 
-  // Auto-save on input with debounce & on change/blur/Enter for text & number inputs
+  // Auto-save on input with debounce & on change/blur/Enter for text & other inputs
   [
     'setting-min-chunk-size',
     'setting-speed-limit',
     'setting-save-path',
-    'setting-max-history',
   ].forEach((id) => {
     const el = document.getElementById(id);
-    el?.addEventListener('input', () => debouncedAutoSave(350));
+    el?.addEventListener('input', () => debouncedAutoSave(500));
     el?.addEventListener('change', () => {
       clearTimeout(debounceSettingsTimer);
       saveAllSettings(true);
@@ -182,6 +200,43 @@ export function bindSettings(onResetAll: () => void): void {
         saveAllSettings(true);
       }
     });
+  });
+
+  // Dedicated handling for setting-max-history:
+  // User can edit digits freely without input hijacking. Clamps to minimum 10 upon finish.
+  const elMaxHist = document.getElementById('setting-max-history') as HTMLInputElement | null;
+  elMaxHist?.addEventListener('change', () => {
+    clearTimeout(debounceSettingsTimer);
+    const raw = elMaxHist.value.trim();
+    if (raw === '') {
+      elMaxHist.value = '10';
+    } else {
+      const parsed = parseInt(raw, 10);
+      elMaxHist.value = String(isNaN(parsed) || parsed < 10 ? 10 : Math.min(99999, parsed));
+    }
+    saveAllSettings(true);
+  });
+  elMaxHist?.addEventListener('blur', () => {
+    const raw = elMaxHist.value.trim();
+    if (raw === '') {
+      elMaxHist.value = '10';
+      saveAllSettings(true);
+    } else {
+      const parsed = parseInt(raw, 10);
+      if (!isNaN(parsed) && parsed < 10) {
+        elMaxHist.value = '10';
+        saveAllSettings(true);
+      }
+    }
+  });
+  elMaxHist?.addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') {
+      clearTimeout(debounceSettingsTimer);
+      const raw = elMaxHist.value.trim();
+      const parsed = parseInt(raw, 10);
+      elMaxHist.value = String(isNaN(parsed) || parsed < 10 ? 10 : Math.min(99999, parsed));
+      saveAllSettings(true);
+    }
   });
 
   document.getElementById('btn-save-settings')?.addEventListener('click', () => saveAllSettings(false));

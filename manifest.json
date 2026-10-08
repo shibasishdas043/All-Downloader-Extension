@@ -42,6 +42,8 @@
 
   "permissions": [
     "downloads",
+    "downloads.ui",
+    "clipboardRead",
     "storage",
     "tabs",
     "scripting",
@@ -68,7 +70,7 @@
   ],
 
   "content_security_policy": {
-    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' https: http: blob: data:"
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https: http: blob:; connect-src 'self' https: http: blob: data:"
   },
 
   "commands": {

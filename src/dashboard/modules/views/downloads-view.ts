@@ -398,6 +398,8 @@ export async function act(type: string, id: string): Promise<void> {
     delete state.downloads[id];
     state.selected.delete(id);
     state.expandedChunkIds.delete(id);
+    state.rowCache.delete(id);
+    state.pendingProgressIds.delete(id);
     updateSelectAllCheckbox();
     updateBulkBar();
     updateSidebarStats();
@@ -506,13 +508,13 @@ async function handleSaveDisk(id: string, btn: HTMLElement): Promise<void> {
 
   btn.classList.add('loading');
   (btn as HTMLButtonElement).disabled = true;
+  const btnSpan = btn.querySelector('span');
+  if (btnSpan) btnSpan.textContent = 'Saving…';
 
   const tr = btn.closest('tr');
   const speedCell = tr?.querySelector('.speed-cell');
   const fill = tr?.querySelector('.tbl-progress-fill') as HTMLElement | null;
   const label = tr?.querySelector('.tbl-progress-label');
-
-  if (speedCell) speedCell.textContent = 'Saving to disk…';
 
   try {
     const chunkCount = dl.totalChunks || dl.chunkCount || (await getChunkCount(id)) || 1;
@@ -528,6 +530,7 @@ async function handleSaveDisk(id: string, btn: HTMLElement): Promise<void> {
         if (speedCell) speedCell.textContent = `Saving ${pct}%…`;
         if (fill)  fill.style.width = `${pct}%`;
         if (label) label.textContent = `${pct}%`;
+        if (btnSpan) btnSpan.textContent = `Saving ${pct}%…`;
       }
     );
 
@@ -540,14 +543,19 @@ async function handleSaveDisk(id: string, btn: HTMLElement): Promise<void> {
     } else {
       console.error('[ADL Dashboard Save Error]:', res.error);
       alert(`Save failed: ${res.error}`);
+      dl.isReadyToSave = true;
       if (speedCell) speedCell.textContent = '—';
+      renderDownloadsTable();
     }
   } catch (err: any) {
     console.error('[ADL Dashboard Save Exception]:', err);
     alert(`Save failed: ${err?.message || err}`);
+    dl.isReadyToSave = true;
     if (speedCell) speedCell.textContent = '—';
+    renderDownloadsTable();
   } finally {
     btn.classList.remove('loading');
     (btn as HTMLButtonElement).disabled = false;
+    if (btnSpan) btnSpan.textContent = 'Save to Disk';
   }
 }

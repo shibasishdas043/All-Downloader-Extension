@@ -41,6 +41,23 @@ describe('Settings Pipeline & Logic Enforcement', () => {
     expect(coordinator.rateLimiter.getRateKBps()).toBe(500);
   });
 
+  test('maxHistoryItems can be edited and is strictly clamped to minimum 10', () => {
+    const coordinator = new DownloadCoordinator({ ...DEFAULT_SETTINGS } as ExtensionSettings);
+    const pruneSpy = vi.spyOn(coordinator, 'pruneHistory').mockResolvedValue(undefined);
+
+    // Can be edited to any custom limit >= 10
+    coordinator.updateSettings({ ...DEFAULT_SETTINGS, maxHistoryItems: 25 } as ExtensionSettings);
+    expect(coordinator.settings.maxHistoryItems).toBe(25);
+    expect(pruneSpy).toHaveBeenCalled();
+
+    // Clamps values below 10 to minimum 10
+    coordinator.updateSettings({ ...DEFAULT_SETTINGS, maxHistoryItems: 3 } as ExtensionSettings);
+    expect(coordinator.settings.maxHistoryItems).toBe(10);
+
+    coordinator.updateSettings({ ...DEFAULT_SETTINGS, maxHistoryItems: 0 } as ExtensionSettings);
+    expect(coordinator.settings.maxHistoryItems).toBe(10);
+  });
+
   test('autoStart setting controls automatic queue dispatch on download creation', async () => {
     const coordinator = new DownloadCoordinator({ ...DEFAULT_SETTINGS, autoStart: false } as ExtensionSettings);
     const enqueueSpy = vi.spyOn(coordinator.queue, 'enqueue');

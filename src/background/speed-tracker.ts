@@ -154,10 +154,11 @@ export class SpeedTracker {
   /** Get current snapshot. */
   getSnapshot(): SpeedSnapshot {
     const calibrating = this.isCalibrating();
-    const hasValidETA = isFinite(this.smoothedETA) && this.smoothedETA >= 0;
+    const hasValidETA = Number.isFinite(this.smoothedETA) && this.smoothedETA >= 0;
+    const bytesPerSec = Number.isFinite(this.smoothedSpeed) ? Math.max(0, Math.round(this.smoothedSpeed)) : 0;
 
     return {
-      bytesPerSec: Math.round(this.smoothedSpeed),
+      bytesPerSec,
       etaSec: hasValidETA ? Math.ceil(this.smoothedETA) : null,
       isCalibrating: calibrating,
     };

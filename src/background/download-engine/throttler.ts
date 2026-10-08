@@ -23,14 +23,16 @@ export class RateLimiter {
   private maxBurstMs: number;
 
   constructor(kbps: number = 0, maxBurstMs: number = 100) {
-    this.bytesPerSec = Math.max(0, kbps) * 1024;
-    this.maxBurstMs = maxBurstMs;
+    const validKbps = Math.max(0, Number(kbps) || 0);
+    this.bytesPerSec = validKbps * 1024;
+    this.maxBurstMs = Math.max(0, Number(maxBurstMs) || 100);
     this.nextAvailableTime = Date.now();
   }
 
   setRate(kbps: number): void {
+    const validKbps = Math.max(0, Number(kbps) || 0);
     const oldRate = this.bytesPerSec;
-    this.bytesPerSec = Math.max(0, kbps) * 1024;
+    this.bytesPerSec = validKbps * 1024;
     const now = Date.now();
 
     if (this.bytesPerSec <= 0) {

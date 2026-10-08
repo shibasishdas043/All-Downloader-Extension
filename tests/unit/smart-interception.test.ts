@@ -61,14 +61,30 @@ describe('Dynamic, Format-Agnostic Interception for All Downloads', () => {
       id: 102,
       url: 'https://example.com/weights.safetensors',
       filename: 'weights.safetensors',
-      totalBytes: 5_000_000_000,
-      fileSize: 5_000_000_000,
+      totalBytes: 50_000_000,
+      fileSize: 50_000_000,
     } as any);
 
     expect(chrome.downloads.cancel).toHaveBeenCalledWith(102, expect.any(Function));
     expect(addDownloadSpy).toHaveBeenCalledWith(
       expect.objectContaining({ url: 'https://example.com/weights.safetensors', filename: 'weights.safetensors' })
     );
+  });
+
+  test('adopts large files (> 1.5GB) directly into native stream without cancel to prevent system busy', async () => {
+    const addDownloadSpy = vi.spyOn(coordinator, 'addDownload').mockResolvedValue({} as any);
+
+    await coordinator.handleChromeDownloadCreated({
+      id: 104,
+      url: 'https://example.com/archive.tar.gz',
+      filename: 'archive.tar.gz',
+      totalBytes: 4_000_000_000,
+      fileSize: 4_000_000_000,
+    } as any);
+
+    // Should NOT cancel Chrome download — adopts directly to prevent FILE_TRANSIENT_ERROR / system busy
+    expect(chrome.downloads.cancel).not.toHaveBeenCalled();
+    expect(addDownloadSpy).not.toHaveBeenCalled();
   });
 
   test('bypasses right-click user-initiated downloads', async () => {
