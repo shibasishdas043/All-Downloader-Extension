@@ -26,6 +26,7 @@ describe('Settings Pipeline & Logic Enforcement', () => {
     expect(DEFAULT_SETTINGS.preserveChunksOnCancel).toBe(true);
     expect(DEFAULT_SETTINGS.organizeByCategoryFolders).toBe(false);
     expect(DEFAULT_SETTINGS.maxHistoryItems).toBe(500);
+    expect(DEFAULT_SETTINGS.autoCheckUpdates).toBe(true);
   });
 
   test('updateSettings dynamically reconfigures QueueManager concurrency limit', () => {

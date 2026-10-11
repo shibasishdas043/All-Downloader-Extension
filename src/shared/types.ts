@@ -94,6 +94,25 @@ export interface ExtensionSettings {
   darkMode: boolean;
   maxHistoryItems: number;
   hideChromeShelf?: boolean;
+  autoCheckUpdates?: boolean;
+}
+
+export interface UpdateCheckResult {
+  ok: boolean;
+  status: string;
+  version?: string;
+  currentVersion: string;
+  message: string;
+}
+
+export interface UpdateStatus {
+  currentVersion: string;
+  pendingVersion: string | null;
+  pendingAt: number | null;
+  lastCheckTime: number | null;
+  lastCheckStatus: string | null;
+  lastCheckMessage: string | null;
+  hasActiveDownloads: boolean;
 }
 
 export interface SniffedMediaItem {

@@ -13,6 +13,7 @@ import {
   openDashboard,
   updateBadge,
   keepAliveGuard,
+  updateManager,
 } from './services/index.js';
 import { restoreDefaultIcon } from './icon-animator.js';
 
@@ -28,6 +29,7 @@ export async function ensureInitialized(): Promise<void> {
         const loaded = await loadSettings();
         settings = loaded;
         coordinator.updateSettings(loaded);
+        updateManager.init(coordinator);
         await coordinator.restoreInProgressDownloads();
       } catch (err) {
         console.error('[ADL] Failed to initialize settings & downloads on wakeup:', err);
@@ -64,6 +66,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   restoreDefaultIcon();
   await ensureInitialized();
   setupContextMenu();
+  updateManager.syncAlarm();
   await injectContentScriptIntoExistingTabs();
 });
 
@@ -71,6 +74,7 @@ self.addEventListener('activate', async () => {
   restoreDefaultIcon();
   await ensureInitialized();
   updateBadge(coordinator.downloadCache.values());
+  updateManager.syncAlarm();
   await injectContentScriptIntoExistingTabs();
 });
 
@@ -116,6 +120,7 @@ if (chrome.notifications?.onClicked) {
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (keepAliveGuard.handleAlarm(alarm.name)) return;
+  if (updateManager.handleAlarm(alarm.name)) return;
   await ensureInitialized();
   coordinator.queue.handleAlarm(alarm.name);
   await coordinator.handleAlarm(alarm.name);

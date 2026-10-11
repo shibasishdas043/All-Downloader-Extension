@@ -82,6 +82,12 @@ export const MSG = Object.freeze({
   // Context Menu & User Intent Detection
   USER_RIGHT_CLICKED:          'USER_RIGHT_CLICKED',
   USER_DISMISSED_CONTEXT_MENU: 'USER_DISMISSED_CONTEXT_MENU',
+
+  // Extension Update Lifecycle
+  CHECK_FOR_UPDATES:   'CHECK_FOR_UPDATES',
+  APPLY_UPDATE:        'APPLY_UPDATE',
+  GET_UPDATE_STATUS:   'GET_UPDATE_STATUS',
+  UPDATE_AVAILABLE:    'UPDATE_AVAILABLE',
 } as const);
 
 // ── Category Folder Names ─────────────────────────────────────
@@ -124,6 +130,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   darkMode:                  true,
   maxHistoryItems:           500,
   hideChromeShelf:           true,  // suppress Chrome's native download shelf / bubble
+  autoCheckUpdates:          true,  // check for extension updates periodically in background
 });
 
 // ── UI Config ─────────────────────────────────────────────────

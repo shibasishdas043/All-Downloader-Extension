@@ -11,3 +11,4 @@ export * from './message-router.js';
 export * from './toast-manager.js';
 export * from './right-click-detector.js';
 export * from './keep-alive.js';
+export * from './update-manager.js';

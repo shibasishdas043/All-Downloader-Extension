@@ -11,6 +11,7 @@ import type { DownloadState, ExtensionSettings } from '../../shared/types.js';
 import type { DownloadCoordinator } from './download-coordinator.js';
 import { openDashboard, broadcastMessage, updateBadge } from './badge-manager.js';
 import { scrapePageMediaAndLinks, parseHtmlMediaAndLinks } from './page-sniffer.js';
+import { updateManager } from './update-manager.js';
 
 export async function handleMessage(
   msg: any,
@@ -188,9 +189,24 @@ export async function handleMessage(
     case MSG.UPDATE_SETTINGS: {
       const updated = await saveSettings(msg.payload || {});
       coordinator.updateSettings(updated);
+      updateManager.syncAlarm();
       onSettingsSaved(updated);
       broadcastMessage({ type: MSG.SETTINGS_UPDATED, settings: updated });
       return { ok: true, settings: updated };
+    }
+
+    case MSG.CHECK_FOR_UPDATES: {
+      const result = await updateManager.checkForUpdates(false);
+      return result;
+    }
+
+    case MSG.APPLY_UPDATE: {
+      const result = updateManager.applyUpdate();
+      return result;
+    }
+
+    case MSG.GET_UPDATE_STATUS: {
+      return { ok: true, status: updateManager.getStatus() };
     }
 
     case MSG.CLEAR_HISTORY: {

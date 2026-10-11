@@ -125,6 +125,7 @@ export function bindSettings(onResetAll: () => void): void {
       verifyIntegrity:           Boolean(get('setting-verify-integrity') ?? (state.settings?.verifyIntegrity ?? DEFAULT_SETTINGS.verifyIntegrity)),
       showNotifications:         Boolean(get('setting-notifications') ?? (state.settings?.showNotifications ?? DEFAULT_SETTINGS.showNotifications)),
       hideChromeShelf:           Boolean(get('setting-hide-shelf') ?? (state.settings?.hideChromeShelf ?? DEFAULT_SETTINGS.hideChromeShelf)),
+      autoCheckUpdates:          Boolean(state.settings?.autoCheckUpdates ?? DEFAULT_SETTINGS.autoCheckUpdates),
       maxHistoryItems,
       darkMode:                  Boolean(state.settings?.darkMode ?? DEFAULT_SETTINGS.darkMode),
     };
@@ -262,3 +263,4 @@ export function bindSettings(onResetAll: () => void): void {
     }
   });
 }
+

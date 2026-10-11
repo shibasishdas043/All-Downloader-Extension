@@ -47,6 +47,7 @@ export class DownloadCoordinator {
   public queue: QueueManager;
   public rateLimiter: RateLimiter;
   public autoRetryBudget = new Map<string, number>();
+  public onIdle?: () => void;
   public static readonly MAX_AUTO_RETRIES = 5;
   public static readonly AUTO_RETRY_DELAYS = [3_000, 8_000, 20_000, 60_000, 120_000];
 
@@ -151,6 +152,9 @@ export class DownloadCoordinator {
     this.downloadCache.set(id, updated);
     await upsertDownload(updated);
     updateBadge(this.downloadCache.values());
+    if (!this.hasActiveDownloads()) {
+      this.onIdle?.();
+    }
     return updated;
   }
 
@@ -1521,6 +1525,24 @@ export class DownloadCoordinator {
         this.queue.enqueue(id);
       }
     }
+  }
+
+  public hasActiveDownloads(): boolean {
+    if (this.nativeStreamDownloads.size > 0) return true;
+    if (this.pendingBlobSaves.size > 0) return true;
+    if (keepAliveGuard.getActiveCount() > 0) return true;
+    for (const dl of this.downloadCache.values()) {
+      const st = dl.status || (dl as any).state;
+      if ([
+        DOWNLOAD_STATE.DOWNLOADING,
+        DOWNLOAD_STATE.CONNECTING,
+        DOWNLOAD_STATE.MERGING,
+        DOWNLOAD_STATE.VERIFYING,
+      ].includes(st as any)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public clearFinishedDownloads(): void {
