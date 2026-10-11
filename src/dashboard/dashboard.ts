@@ -68,6 +68,8 @@ export function renderView(view: string): void {
 export function handleSWMessage(msg: any): void {
   switch (msg.type) {
     case MSG.DOWNLOAD_ADDED:
+      if (!msg.download.state && msg.download.status) msg.download.state = msg.download.status;
+      if (!msg.download.status && msg.download.state) msg.download.status = msg.download.state;
       state.downloads[msg.download.id] = msg.download;
       if (state.currentView === 'downloads') renderDownloadsTable();
       updateSidebarStats();
@@ -242,7 +244,11 @@ async function init(): Promise<void> {
     const maxItems = state.settings?.maxHistoryItems || 500;
     const sorted = dlRes.downloads.sort((a: any, b: any) => (b.createdAt || 0) - (a.createdAt || 0));
     const kept = sorted.slice(0, maxItems);
-    kept.forEach((d: any) => { state.downloads[d.id] = d; });
+    kept.forEach((d: any) => {
+      if (!d.state && d.status) d.state = d.status;
+      if (!d.status && d.state) d.status = d.state;
+      state.downloads[d.id] = d;
+    });
   }
   if (dlRes?.queueOrder) state.latestQueueOrder = dlRes.queueOrder;
 

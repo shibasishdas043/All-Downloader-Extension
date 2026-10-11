@@ -27,7 +27,7 @@ export function renderQueue(): void {
   // 1. Primary order via latestQueueOrder array from QueueManager
   // 2. Stable fallback via createdAt ascending
   const queued = Object.values(state.downloads)
-    .filter(d => d.state === DOWNLOAD_STATE.QUEUED)
+    .filter(d => (d.state || d.status) === DOWNLOAD_STATE.QUEUED)
     .sort((a, b) => {
       const idxA = state.latestQueueOrder.indexOf(a.id);
       const idxB = state.latestQueueOrder.indexOf(b.id);
@@ -168,12 +168,18 @@ export function bindQueue(): void {
         renderQueue();
       } else if (action === 'start') {
         await sendMsg({ type: MSG.START_QUEUED_NOW, id });
-        if (state.downloads[id]) state.downloads[id].state = DOWNLOAD_STATE.DOWNLOADING;
+        if (state.downloads[id]) {
+          state.downloads[id].state = DOWNLOAD_STATE.DOWNLOADING;
+          state.downloads[id].status = DOWNLOAD_STATE.DOWNLOADING;
+        }
         renderQueue();
         updateBadges();
       } else if (action === 'cancel') {
         await sendMsg({ type: MSG.CANCEL_DOWNLOAD, id });
-        if (state.downloads[id]) state.downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+        if (state.downloads[id]) {
+          state.downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+          state.downloads[id].status = DOWNLOAD_STATE.CANCELLED;
+        }
         renderQueue();
         updateBadges();
       }

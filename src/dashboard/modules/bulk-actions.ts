@@ -53,13 +53,16 @@ export async function bulkAction(msgType: string, onDone: () => void): Promise<v
       state.expandedChunkIds.delete(id);
     } else if (msgType === MSG.CANCEL_DOWNLOAD && state.downloads[id]) {
       state.downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+      state.downloads[id].status = DOWNLOAD_STATE.CANCELLED;
       state.downloads[id].speed = 0;
       state.downloads[id].eta = 0;
     } else if (msgType === MSG.PAUSE_DOWNLOAD && state.downloads[id]) {
       state.downloads[id].state = DOWNLOAD_STATE.PAUSED;
+      state.downloads[id].status = DOWNLOAD_STATE.PAUSED;
       state.downloads[id].speed = 0;
     } else if (msgType === MSG.RESUME_DOWNLOAD && state.downloads[id]) {
       state.downloads[id].state = DOWNLOAD_STATE.CONNECTING;
+      state.downloads[id].status = DOWNLOAD_STATE.CONNECTING;
     }
     await sendMsg({ type: msgType, id });
   }

@@ -530,7 +530,14 @@ export class DownloadCoordinator {
             delayMs: delay,
             errorMessage: `Connection lost — reconnecting in ${delay / 1000}s (${attempt}/5)…`,
           });
+          const alarmName = `adl_retry_${id}`;
+          if (typeof chrome !== 'undefined' && chrome.alarms) {
+            chrome.alarms.create(alarmName, { when: Date.now() + delay });
+          }
           setTimeout(async () => {
+            if (typeof chrome !== 'undefined' && chrome.alarms) {
+              chrome.alarms.clear(alarmName);
+            }
             const current = this.downloadCache.get(id);
             if ((current as any)?.autoReconnecting) {
               await this.updateState(id, DOWNLOAD_STATE.CONNECTING as DownloadState, {
@@ -681,7 +688,7 @@ export class DownloadCoordinator {
       releaseOffscreenAssembly(id);
       await this.updateState(id, DOWNLOAD_STATE.PAUSED as DownloadState, {
         error: null,
-        errorMessage: `Save interrupted: . Click Resume to retry saving.`,
+        errorMessage: `Save interrupted: ${err?.message || 'unknown error'}. Click Resume to retry saving.`,
         percent: 100,
         progress: 100,
       } as any);
@@ -1498,6 +1505,22 @@ export class DownloadCoordinator {
       }
     }
     this.autoRetryBudget.delete(downloadId);
+    if (typeof chrome !== 'undefined' && chrome.alarms) {
+      chrome.alarms.clear(`adl_retry_${downloadId}`);
+    }
+  }
+
+  public async handleAlarm(alarmName: string): Promise<void> {
+    if (alarmName.startsWith('adl_retry_')) {
+      const id = alarmName.replace('adl_retry_', '');
+      const current = this.downloadCache.get(id);
+      if ((current as any)?.autoReconnecting) {
+        await this.updateState(id, DOWNLOAD_STATE.CONNECTING as DownloadState, {
+          errorMessage: 'Reconnecting…',
+        } as any);
+        this.queue.enqueue(id);
+      }
+    }
   }
 
   public clearFinishedDownloads(): void {

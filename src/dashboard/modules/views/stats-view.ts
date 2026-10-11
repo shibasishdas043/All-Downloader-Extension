@@ -11,7 +11,7 @@ export async function renderStats(): Promise<void> {
   const res = await sendMsg({ type: MSG.GET_DOWNLOADS });
   const all = res?.downloads || [];
 
-  const completedDownloads = all.filter((d: any) => d.state === DOWNLOAD_STATE.COMPLETED);
+  const completedDownloads = all.filter((d: any) => (d.state || d.status) === DOWNLOAD_STATE.COMPLETED);
   const totalFiles = completedDownloads.length;
   const totalSize = completedDownloads.reduce((s: number, d: any) => s + (d.total || d.received || 0), 0);
 
@@ -23,7 +23,7 @@ export async function renderStats(): Promise<void> {
     return sum;
   }, 0);
 
-  const activeDownloads = all.filter((d: any) => d.state === DOWNLOAD_STATE.DOWNLOADING);
+  const activeDownloads = all.filter((d: any) => (d.state || d.status) === DOWNLOAD_STATE.DOWNLOADING);
   const activeTimeMs = activeDownloads.reduce((sum: number, d: any) => {
     if (d.startedAt && Date.now() > d.startedAt) {
       return sum + (Date.now() - d.startedAt);

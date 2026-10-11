@@ -84,9 +84,13 @@ export function updateItem(id: string): void {
   const el = $list.querySelector(`.dl-item[data-id="${id}"]`) as HTMLElement | null;
   if (!el) { renderAll(); return; }
   const dl = downloads[id];
-  el.dataset.state = dl.state || dl.status;
+  const oldState = el.dataset.state;
+  const newState = dl.state || dl.status;
+  el.dataset.state = newState;
   populateItem(el, dl);
-  renderAll();
+  if (oldState !== newState) {
+    renderAll();
+  }
 }
 
 export function populateItem(el: HTMLElement, dl: any): void {

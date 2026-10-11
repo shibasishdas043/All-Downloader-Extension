@@ -2,7 +2,7 @@
 //  Unit Tests — throttler.ts
 // ============================================================
 import { describe, test, expect } from 'vitest';
-import { createThrottle } from '../../src/background/download-engine/throttler.js';
+import { createThrottle, sleep } from '../../src/background/download-engine/throttler.js';
 
 describe('createThrottle', () => {
   test('returns no-op function when kbps <= 0', async () => {
@@ -55,3 +55,25 @@ describe('createThrottle', () => {
     expect(throttle.limiter.getRateKBps()).toBe(0);
   });
 });
+
+describe('sleep', () => {
+  test('resolves after specified duration', async () => {
+    const controller = new AbortController();
+    const start = Date.now();
+    await sleep(20, controller.signal);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(15);
+  });
+
+  test('rejects immediately if already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await expect(sleep(100, controller.signal)).rejects.toThrow('Aborted');
+  });
+
+  test('rejects when aborted mid-sleep', async () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 15);
+    await expect(sleep(100, controller.signal)).rejects.toThrow('Aborted');
+  });
+});
+

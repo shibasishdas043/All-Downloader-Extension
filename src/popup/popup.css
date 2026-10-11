@@ -67,11 +67,24 @@
 }
 
 /* ── Root ────────────────────────────────────────────────────── */
-html,
+html {
+  width: var(--popup-width);
+  min-width: var(--popup-width);
+  max-width: var(--popup-width);
+  height: 520px;
+  min-height: 520px;
+  max-height: 520px;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
 body {
   width: var(--popup-width);
+  min-width: var(--popup-width);
+  max-width: var(--popup-width);
   height: 520px;
-  max-height: 580px;
+  min-height: 520px;
+  max-height: 520px;
   background: var(--bg-app);
   color: var(--text-primary);
   font-family: var(--font);
@@ -81,6 +94,7 @@ body {
   flex-direction: column;
   user-select: none;
   -webkit-font-smoothing: antialiased;
+  box-sizing: border-box;
 }
 
 /* ── Header ──────────────────────────────────────────────────── */
@@ -173,6 +187,7 @@ body {
 
 /* ── Status Bar (Uppercase Technical Eyebrow Bar) ────────────── */
 .status-bar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -206,6 +221,8 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 8px 12px 12px;
   scrollbar-width: thin;
   scrollbar-color: rgba(173, 181, 189, 0.4) transparent;
@@ -233,14 +250,14 @@ body {
 
 /* ── Empty State ─────────────────────────────────────────────── */
 .empty-state {
-  display: flex;
+  display: none;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   padding: 44px 20px;
   color: var(--text-muted);
   gap: 10px;
-  animation: framerFadeIn 0.3s var(--ease-out-expo);
+  animation: framerFadeIn 0.25s var(--ease-out-expo);
 }
 
 .empty-icon {
@@ -280,7 +297,8 @@ body {
   outline: none !important;
   box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.07), 0 2px 6px -1px rgba(15, 23, 42, 0.04) !important;
   transition: transform var(--transition-fast), background var(--transition), box-shadow var(--transition);
-  animation: framerRowIn 0.28s var(--ease-out-expo) both;
+  animation: framerRowIn 0.22s var(--ease-out-expo) both;
+  contain: layout style;
 }
 
 .dl-item:hover {
@@ -479,8 +497,9 @@ body {
   width: 0%;
   background: var(--geist-ink);
   border-radius: 2px;
-  transition: width 0.35s var(--ease-out-expo);
+  transition: width 0.18s ease-out;
   position: relative;
+  will-change: width;
 }
 
 /* Hide progress section for terminal states to keep design ultra-minimal */
@@ -559,7 +578,7 @@ body {
   padding: 2px 7px;
   border-radius: var(--radius-sm);
   display: none;
-  animation: framerBadgePop 0.24s var(--ease-spring) both;
+  animation: framerBadgePop 0.18s var(--ease-out-expo) both;
 }
 
 .dl-item[data-state="queued"] .dl-state-badge {
@@ -839,12 +858,20 @@ body {
 @keyframes framerRowIn {
   0% {
     opacity: 0;
-    transform: translateY(6px);
   }
 
   100% {
     opacity: 1;
-    transform: translateY(0);
+  }
+}
+
+@keyframes blinkBadge {
+  0%, 100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.35;
   }
 }
 

@@ -118,6 +118,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (keepAliveGuard.handleAlarm(alarm.name)) return;
   await ensureInitialized();
   coordinator.queue.handleAlarm(alarm.name);
+  await coordinator.handleAlarm(alarm.name);
 });
 
 // ─────────────────────────────────────────────────────────────

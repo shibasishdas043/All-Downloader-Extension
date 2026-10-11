@@ -165,20 +165,31 @@ export async function deleteDownload(id: string): Promise<void> {
     pendingSaveTimer = null;
   }
   await flushDownloadsToStorage();
+  try {
+    await clearChunks(id);
+  } catch (err) {
+    console.warn(`[ADL storage] Error cleaning up chunks for deleted download ${id}:`, err);
+  }
 }
 
 /** Clear all completed / cancelled download history and reset stats. */
 export async function clearHistory(): Promise<void> {
   const all = await loadDownloads();
   const active: Record<string, DownloadItem> = {};
+  const clearedIds: string[] = [];
   for (const [id, dl] of Object.entries(all)) {
     const st = dl.status || (dl as any).state;
     if (['downloading', 'queued', 'paused', 'connecting', 'merging', 'verifying'].includes(st)) {
       active[id] = dl;
+    } else {
+      clearedIds.push(id);
     }
   }
   await saveDownloads(active);
   await resetStats();
+  if (clearedIds.length > 0) {
+    await Promise.allSettled(clearedIds.map((id) => clearChunks(id)));
+  }
 }
 
 /** Reset all lifetime stats to zero. */

@@ -19,7 +19,7 @@ export function bindNav(onNavigate: (view: string) => void): void {
 
 export function updateSidebarStats(): void {
   const all = Object.values(state.downloads);
-  const active = all.filter(d => d.state === DOWNLOAD_STATE.DOWNLOADING);
+  const active = all.filter(d => (d.state || d.status) === DOWNLOAD_STATE.DOWNLOADING);
   const speed = active.reduce((s, d) => s + (d.speed || 0), 0);
 
   const $speed = document.getElementById('sidebar-total-speed');
@@ -33,8 +33,8 @@ export function updateSidebarStats(): void {
 
 export function updateBadges(): void {
   const all = Object.values(state.downloads);
-  const active = all.filter(d => [DOWNLOAD_STATE.DOWNLOADING, DOWNLOAD_STATE.QUEUED, DOWNLOAD_STATE.CONNECTING].includes(d.state));
-  const queue = all.filter(d => d.state === DOWNLOAD_STATE.QUEUED);
+  const active = all.filter(d => [DOWNLOAD_STATE.DOWNLOADING, DOWNLOAD_STATE.QUEUED, DOWNLOAD_STATE.CONNECTING].includes((d.state || d.status) as any));
+  const queue = all.filter(d => (d.state || d.status) === DOWNLOAD_STATE.QUEUED);
 
   const $badge = document.getElementById('nav-badge-downloads');
   if ($badge) {

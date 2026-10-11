@@ -5,11 +5,19 @@
 export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
-    const id = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
-      clearTimeout(id);
+
+    let id: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = () => {
+      if (id !== undefined) clearTimeout(id);
       reject(new DOMException('Aborted', 'AbortError'));
-    }, { once: true });
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+
+    id = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
   });
 }
 

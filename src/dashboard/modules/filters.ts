@@ -17,11 +17,11 @@ export function getFilteredDownloads(): any[] {
         DOWNLOAD_STATE.MERGING,
         DOWNLOAD_STATE.VERIFYING
       ];
-      list = list.filter(d => activeStates.includes(d.state));
+      list = list.filter(d => activeStates.includes(d.state || d.status));
     } else if (state.activeFilter === 'error' || state.activeFilter === 'failed') {
-      list = list.filter(d => d.state === DOWNLOAD_STATE.ERROR || d.state === DOWNLOAD_STATE.CANCELLED);
+      list = list.filter(d => (d.state || d.status) === DOWNLOAD_STATE.ERROR || (d.state || d.status) === DOWNLOAD_STATE.CANCELLED);
     } else {
-      list = list.filter(d => d.state === state.activeFilter);
+      list = list.filter(d => (d.state || d.status) === state.activeFilter);
     }
   }
 

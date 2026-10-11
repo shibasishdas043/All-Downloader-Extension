@@ -350,9 +350,10 @@ export async function fetchSegmentWithRetry({
       await sleep(Math.min(delay, 30_000), controller.signal);
 
       // Rollback received bytes for this segment before retry
-      progress.received -= seg.received;
+      progress.received = Math.max(0, progress.received - seg.received);
       seg.received = 0;
       blobParts.length = 0;
+      emit();
     }
   }
 }

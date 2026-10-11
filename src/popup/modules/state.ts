@@ -9,6 +9,10 @@ export function getDownload(id: string): any {
 }
 
 export function setDownload(id: string, dl: any): void {
+  if (dl) {
+    if (!dl.state && dl.status) dl.state = dl.status;
+    if (!dl.status && dl.state) dl.status = dl.state;
+  }
   downloads[id] = dl;
 }
 

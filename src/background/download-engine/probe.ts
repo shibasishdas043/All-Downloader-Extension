@@ -200,8 +200,17 @@ export function parseFilename(res: Response, url: string): string {
 
 export function combineSignals(s1: AbortSignal, s2: AbortSignal): AbortSignal {
   const ctrl = new AbortController();
-  const abort = () => ctrl.abort();
+  if (s1.aborted || s2.aborted) {
+    ctrl.abort();
+    return ctrl.signal;
+  }
+  const abort = () => {
+    s1.removeEventListener('abort', abort);
+    s2.removeEventListener('abort', abort);
+    ctrl.abort();
+  };
   s1.addEventListener('abort', abort, { once: true });
   s2.addEventListener('abort', abort, { once: true });
   return ctrl.signal;
 }
+

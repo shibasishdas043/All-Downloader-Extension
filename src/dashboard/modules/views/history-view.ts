@@ -19,7 +19,7 @@ export function renderHistory(): void {
 
   // 1. Gather all terminated ledger items (completed, cancelled, or failed)
   let list = Object.values(state.downloads).filter(d =>
-    [DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.CANCELLED, DOWNLOAD_STATE.ERROR].includes(d.state)
+    [DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.CANCELLED, DOWNLOAD_STATE.ERROR].includes(d.state || d.status)
   );
 
   // Sync Clear History button disabled state
@@ -99,9 +99,10 @@ export function renderHistory(): void {
       ? ext.slice(0, 4).toUpperCase()
       : `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
 
-    const statusTag = dl.state === DOWNLOAD_STATE.COMPLETED
+    const st = dl.state || dl.status;
+    const statusTag = st === DOWNLOAD_STATE.COMPLETED
       ? `<span class="hist-status-tag completed">Done</span>`
-      : dl.state === DOWNLOAD_STATE.CANCELLED
+      : st === DOWNLOAD_STATE.CANCELLED
         ? `<span class="hist-status-tag cancelled">Cancelled</span>`
         : `<span class="hist-status-tag error">Failed</span>`;
 
@@ -134,7 +135,7 @@ export function renderHistory(): void {
       </td>
       <td class="col-hist-actions">
         <div class="row-actions">
-          ${dl.state === DOWNLOAD_STATE.COMPLETED ? `
+          ${(dl.state || dl.status) === DOWNLOAD_STATE.COMPLETED ? `
           <button class="row-btn row-btn-folder" data-hist-act="open" data-id="${dl.id}" title="Open folder">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           </button>` : ''}
@@ -204,10 +205,12 @@ export function bindHistory(): void {
       } else if (act === 'retry') {
         if (state.downloads[id]) {
           state.downloads[id].state = DOWNLOAD_STATE.CONNECTING;
+          state.downloads[id].status = DOWNLOAD_STATE.CONNECTING;
           state.downloads[id].percent = 0;
           state.downloads[id].received = 0;
           state.downloads[id].speed = 0;
           state.downloads[id].error = null;
+          state.downloads[id].errorMessage = null;
         }
         renderHistory();
         updateSidebarStats();
@@ -220,7 +223,7 @@ export function bindHistory(): void {
   // Clear history button with confirmation
   document.getElementById('btn-clear-history')?.addEventListener('click', async () => {
     const completed = Object.values(state.downloads).filter(d =>
-      [DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.CANCELLED, DOWNLOAD_STATE.ERROR].includes(d.state)
+      [DOWNLOAD_STATE.COMPLETED, DOWNLOAD_STATE.CANCELLED, DOWNLOAD_STATE.ERROR].includes(d.state || d.status)
     );
     if (completed.length === 0) return;
 

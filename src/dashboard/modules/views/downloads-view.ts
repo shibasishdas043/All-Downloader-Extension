@@ -408,6 +408,7 @@ export async function act(type: string, id: string): Promise<void> {
   } else if (type === MSG.CANCEL_DOWNLOAD) {
     if (state.downloads[id]) {
       state.downloads[id].state = DOWNLOAD_STATE.CANCELLED;
+      state.downloads[id].status = DOWNLOAD_STATE.CANCELLED;
       state.downloads[id].speed = 0;
       state.downloads[id].eta = 0;
     }
@@ -420,13 +421,17 @@ export async function act(type: string, id: string): Promise<void> {
   } else if (type === MSG.PAUSE_DOWNLOAD) {
     if (state.downloads[id]) {
       state.downloads[id].state = DOWNLOAD_STATE.PAUSED;
+      state.downloads[id].status = DOWNLOAD_STATE.PAUSED;
       state.downloads[id].speed = 0;
     }
     updateTableRowState(id);
     updateSidebarStats();
     updateBadges();
   } else if (type === MSG.RESUME_DOWNLOAD) {
-    if (state.downloads[id]) state.downloads[id].state = DOWNLOAD_STATE.CONNECTING;
+    if (state.downloads[id]) {
+      state.downloads[id].state = DOWNLOAD_STATE.CONNECTING;
+      state.downloads[id].status = DOWNLOAD_STATE.CONNECTING;
+    }
     updateTableRowState(id);
     updateSidebarStats();
     updateBadges();
