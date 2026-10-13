@@ -93,7 +93,7 @@ export class UpdateManager {
   public async checkForUpdates(silent = false): Promise<UpdateCheckResult> {
     const currentVersion = typeof chrome !== 'undefined' && chrome.runtime?.getManifest
       ? chrome.runtime.getManifest().version
-      : '1.0.8';
+      : '1.0.9';
 
     if (this.isChecking) {
       return {
@@ -245,7 +245,7 @@ export class UpdateManager {
   public getStatus(): UpdateStatus {
     const currentVersion = typeof chrome !== 'undefined' && chrome.runtime?.getManifest
       ? chrome.runtime.getManifest().version
-      : '1.0.8';
+      : '1.0.9';
 
     return {
       currentVersion,
