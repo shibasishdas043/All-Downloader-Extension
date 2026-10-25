@@ -166,6 +166,11 @@
         <button class="chip" data-cat="application">⚙️ Apps</button>
       </div>
 
+      <!-- Smart Shelves Bar (Dynamic Self-Organizing Contextual Filters) -->
+      <div class="smart-shelves-bar" id="dashboard-smart-shelves" style="display: none;">
+        <!-- Populated dynamically from user download records -->
+      </div>
+
       <!-- Bulk actions bar -->
       <div class="bulk-bar" id="bulk-bar" hidden>
         <span id="bulk-count">0 selected</span>
@@ -367,6 +372,31 @@
             </div>
           </div>
 
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Hover-to-Grab Download Button</span>
+              <span class="setting-desc">Display a floating 1-click grab button when hovering over images, videos, and media</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input type="checkbox" id="setting-hover-grab" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="setting-row">
+            <div class="setting-info">
+              <span class="setting-label">Universal Right-Click & Copy Unblocker</span>
+              <span class="setting-desc">Unconditionally re-enable mouse right-click, context menu, text selection, and image/media saving on all restricted websites</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle">
+                <input type="checkbox" id="setting-unblock-right-click" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
 
           <div class="setting-row">
             <div class="setting-info">
@@ -517,6 +547,248 @@
             <div class="setting-control">
               <button class="btn-danger-sm" id="btn-reset-all">Reset All Data</button>
             </div>
+          </div>
+        </div>
+
+        <!-- Dynamic Intent Smart Routing & Auto-Organizer -->
+        <div class="settings-group full-width-group" id="smart-semantic-routing-group">
+          <div class="group-header-with-toggle">
+            <div>
+              <h3 class="group-title">Smart Dynamic Auto-Folder Organizer</h3>
+              <span class="setting-desc">Zero-hardcoding intelligent classification. Analyzes URL structure, page context, document semantics, and metadata to dynamically route downloads.</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle" id="toggle-enable-smart-routing" title="Toggle Smart Auto-Organizer">
+                <input type="checkbox" id="setting-enable-smart-routing" checked />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Dynamic Configuration Controls -->
+          <div class="smart-organizer-config-grid">
+            <div class="organizer-config-card">
+              <div class="config-card-header">
+                <div class="config-card-icon">📁</div>
+                <div class="config-card-text">
+                  <span class="config-title">Dynamic Folder Hierarchy Strategy</span>
+                  <span class="config-desc">Controls how the organizer constructs subdirectories for incoming downloads.</span>
+                </div>
+              </div>
+              <div class="config-control-wrap">
+                <select id="setting-smart-structure" class="form-select config-select">
+                  <option value="contextual">Deep Semantic &amp; Intent Hierarchy (e.g. Topic / Institution / Project)</option>
+                  <option value="domain">Domain &amp; Year Hierarchy ({domain}/{year})</option>
+                  <option value="category">Standard Category Folders ({category})</option>
+                  <option value="date">Chronological Timeline ({year}/{month})</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="organizer-config-card">
+              <div class="config-card-header">
+                <div class="config-card-icon">🏷️</div>
+                <div class="config-card-text">
+                  <span class="config-title">Intelligent Filename Normalizer</span>
+                  <span class="config-desc">Cleans URL-encoded junk, duplicate separators, and attaches dynamic intent prefixes while preserving extensions.</span>
+                </div>
+              </div>
+              <div class="config-control-wrap">
+                <label class="toggle" id="toggle-smart-clean-filename" title="Toggle Clean Filenames">
+                  <input type="checkbox" id="setting-smart-clean-filename" checked />
+                  <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Feature Highlights: Dynamic Zero-Hardcoding Architecture -->
+          <div class="dynamic-features-row">
+            <div class="dynamic-feature-item">
+              <div class="feature-icon">⚡</div>
+              <div class="feature-body">
+                <strong>Universal Semantic Engine</strong>
+                <p>Zero hardcoded whitelists. Dynamically analyzes academic portals, financial receipts, invoices, code repositories, media, and docs.</p>
+              </div>
+            </div>
+            <div class="dynamic-feature-item">
+              <div class="feature-icon">🔍</div>
+              <div class="feature-body">
+                <strong>Entity &amp; Temporal Extraction</strong>
+                <p>Automatically isolates courses, years, project identifiers, and institutional tags from live DOM and URL segments.</p>
+              </div>
+            </div>
+            <div class="dynamic-feature-item">
+              <div class="feature-icon">📂</div>
+              <div class="feature-body">
+                <strong>Virtual Zero-Click Shelves</strong>
+                <p>Downloaded items are instantly grouped in the dashboard with real-time smart badges and category shelves.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Rule & Context Simulator -->
+          <div class="route-simulator-box">
+            <div class="simulator-header">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="m10 15 5-3-5-3v6z"/></svg>
+              <span>Live Smart Routing Simulator &amp; Path Previewer</span>
+            </div>
+            <p class="simulator-desc">Test how any URL, Page Title, or file will be classified and routed in real time:</p>
+            <div class="simulator-inputs">
+              <input type="text" id="sim-url" class="sim-input" placeholder="e.g. https://canvas.mit.edu/courses/1802/lecture4_notes.pdf" value="https://canvas.mit.edu/courses/1802/lecture4_notes.pdf" />
+              <input type="text" id="sim-title" class="sim-input" placeholder="e.g. MIT CS101 Lecture 4 - Recursion & Algorithms" value="MIT CS101 Lecture 4 - Recursion & Algorithms" />
+            </div>
+            <div class="simulator-result" id="sim-result-card">
+              <!-- Live Preview dynamically rendered -->
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-group full-width-group" id="routing-rules-group">
+          <div class="group-header-with-toggle">
+            <div>
+              <div class="group-title-row">
+                <h3 class="group-title">Custom Routing &amp; Filename Override Rules</h3>
+                <span class="routing-status-badge" id="routing-status-indicator">Active</span>
+              </div>
+              <span class="setting-desc">User-defined rules take priority over automatic classification. Expand tokens and route to exact custom directories.</span>
+            </div>
+            <div class="setting-control">
+              <label class="toggle" id="toggle-enable-routing" title="Enable Custom Routing Rules">
+                <input type="checkbox" id="setting-enable-routing" />
+                <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="routing-toolbar">
+            <div class="routing-toolbar-left">
+              <button type="button" class="btn-primary-sm" id="btn-add-routing-rule">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add Rule</span>
+              </button>
+              <div class="preset-dropdown-wrap">
+                <button type="button" class="btn-secondary-sm" id="btn-routing-presets">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                  <span>Quick Presets</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="presets-menu" id="presets-menu" style="display:none;">
+                  <button type="button" class="preset-item" data-preset="github">
+                    <span class="preset-item-emoji">💻</span>
+                    <div class="preset-item-meta">
+                      <strong>GitHub Releases</strong>
+                      <span>Code/{domain}/{date}</span>
+                    </div>
+                  </button>
+                  <button type="button" class="preset-item" data-preset="design">
+                    <span class="preset-item-emoji">🎨</span>
+                    <div class="preset-item-meta">
+                      <strong>Design Assets</strong>
+                      <span>Design/{site}/{date}</span>
+                    </div>
+                  </button>
+                  <button type="button" class="preset-item" data-preset="pdf">
+                    <span class="preset-item-emoji">📄</span>
+                    <div class="preset-item-meta">
+                      <strong>Research PDFs</strong>
+                      <span>Documents/Research/{year}/{quarter}</span>
+                    </div>
+                  </button>
+                  <button type="button" class="preset-item" data-preset="video">
+                    <span class="preset-item-emoji">🎬</span>
+                    <div class="preset-item-meta">
+                      <strong>Video Downloads</strong>
+                      <span>Videos/{site}/{year}</span>
+                    </div>
+                  </button>
+                  <button type="button" class="preset-item" data-preset="learning">
+                    <span class="preset-item-emoji">🎓</span>
+                    <div class="preset-item-meta">
+                      <strong>Course Lectures</strong>
+                      <span>Learning/{site}/{title}</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              <button type="button" class="btn-ghost-sm" id="btn-toggle-tokens-cheatsheet" title="Toggle Token Reference Cheat Sheet">
+                <span class="cheatsheet-btn-icon">🏷️</span>
+                <span>Dynamic Tokens</span>
+                <svg class="cheatsheet-arrow-icon" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+            </div>
+
+            <div class="routing-active-rules-count" id="rules-count-badge">0 Active Rules</div>
+          </div>
+
+          <!-- Expandable Dynamic Tokens Reference Drawer -->
+          <div class="tokens-cheatsheet-drawer" id="tokens-cheatsheet-drawer" style="display:none;">
+            <div class="cheatsheet-header">
+              <div class="cheatsheet-header-left">
+                <span class="cheatsheet-title">Dynamic Path &amp; Filename Tokens</span>
+                <span class="cheatsheet-hint">Click any token to insert into your active rule input (or copy to clipboard):</span>
+              </div>
+            </div>
+            <div class="tokens-groups-grid">
+              <div class="token-group-card">
+                <span class="token-group-title">🌐 Web &amp; Site Context</span>
+                <div class="token-group-chips">
+                  <button type="button" class="token-chip" data-token="{site}" title="Root brand or second-level domain (e.g. 'github', 'figma')">
+                    <code>{site}</code><span class="token-sub">github</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{domain}" title="Full hostname without www (e.g. 'api.github.com')">
+                    <code>{domain}</code><span class="token-sub">site.com</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{subdomain}" title="Subdomain prefix if present (e.g. 'api', 'canvas')">
+                    <code>{subdomain}</code><span class="token-sub">api</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="token-group-card">
+                <span class="token-group-title">📅 Date &amp; Temporal</span>
+                <div class="token-group-chips">
+                  <button type="button" class="token-chip" data-token="{date}" title="Current date YYYY-MM-DD">
+                    <code>{date}</code><span class="token-sub">2026-10-25</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{year}" title="4-digit year">
+                    <code>{year}</code><span class="token-sub">2026</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{month}" title="2-digit month">
+                    <code>{month}</code><span class="token-sub">10</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{quarter}" title="Quarter Q1-Q4">
+                    <code>{quarter}</code><span class="token-sub">Q4</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{timestamp}" title="Epoch timestamp in milliseconds">
+                    <code>{timestamp}</code><span class="token-sub">1792...</span>
+                  </button>
+                </div>
+              </div>
+
+              <div class="token-group-card">
+                <span class="token-group-title">📄 File &amp; Page Details</span>
+                <div class="token-group-chips">
+                  <button type="button" class="token-chip" data-token="{original_name}" title="Original filename without extension">
+                    <code>{original_name}</code><span class="token-sub">lecture_4</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{ext}" title="File extension without dot">
+                    <code>{ext}</code><span class="token-sub">pdf</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{category}" title="Detected category folder name">
+                    <code>{category}</code><span class="token-sub">Documents</span>
+                  </button>
+                  <button type="button" class="token-chip" data-token="{title}" title="Webpage title sanitized for safe folder use">
+                    <code>{title}</code><span class="token-sub">Page_Title</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="routing-rules-container" id="routing-rules-list">
+            <!-- Rules dynamically rendered by settings-view.ts -->
           </div>
         </div>
 

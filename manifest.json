@@ -37,6 +37,14 @@
       "run_at": "document_start",
       "all_frames": true,
       "match_about_blank": true
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/content/stream-sniffer.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "world": "MAIN",
+      "match_about_blank": true
     }
   ],
 
@@ -51,7 +59,8 @@
     "notifications",
     "alarms",
     "unlimitedStorage",
-    "offscreen"
+    "offscreen",
+    "webRequest"
   ],
 
   "host_permissions": [

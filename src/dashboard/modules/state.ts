@@ -37,6 +37,7 @@ export interface DashboardState {
   rafScheduled: boolean;
   rowCache: Map<string, CachedRowRefs>;
   expandedChunkIds: Set<string>;
+  activeSmartShelf: string;
 }
 
 export const state: DashboardState = {
@@ -46,6 +47,7 @@ export const state: DashboardState = {
   currentView: 'downloads',
   activeFilter: 'all',
   activeCat: 'all',
+  activeSmartShelf: 'all',
   searchQuery: '',
   sortCol: 'createdAt',
   sortDir: 'desc',

@@ -12,11 +12,13 @@ import type { DownloadCoordinator } from './download-coordinator.js';
 import { openDashboard, broadcastMessage, updateBadge } from './badge-manager.js';
 import { scrapePageMediaAndLinks, parseHtmlMediaAndLinks } from './page-sniffer.js';
 import { updateManager } from './update-manager.js';
+import { mediaStreamRegistry } from './media-stream-registry.js';
 
 export async function handleMessage(
   msg: any,
   coordinator: DownloadCoordinator,
-  onSettingsSaved: (settings: ExtensionSettings) => void
+  onSettingsSaved: (settings: ExtensionSettings) => void,
+  sender?: chrome.runtime.MessageSender
 ): Promise<any> {
   switch (msg?.type) {
 
@@ -104,6 +106,7 @@ export async function handleMessage(
     }
 
     case MSG.CANCEL_DOWNLOAD: {
+      coordinator.hlsCoordinator?.cancel(msg.id);
       if (coordinator.isStreamDownload(msg.id)) {
         await coordinator.cancelStreamDownload(msg.id);
         return { ok: true };
@@ -124,6 +127,60 @@ export async function handleMessage(
         coordinator.cleanupPending(msg.id);
       }
       return { ok: true };
+    }
+
+    case MSG.HLS_PLAYLIST_DETECTED: {
+      const { playlistUrl, pageUrl, pageTitle, origin, tabId, autoDownload } = msg.payload || {};
+      if (!playlistUrl) return { ok: false };
+
+      const cleanUrl = playlistUrl.split('?')[0].toLowerCase();
+      const isM3U8 = cleanUrl.endsWith('.m3u8') || playlistUrl.toLowerCase().includes('.m3u8');
+      const isMPD = cleanUrl.endsWith('.mpd') || playlistUrl.toLowerCase().includes('.mpd');
+      const filename = coordinator.deriveFilenameFromStream(playlistUrl, pageTitle);
+
+      // Register in tab media registry
+      let effectiveTabId = tabId || sender?.tab?.id;
+      if (!effectiveTabId && typeof chrome !== 'undefined' && chrome.tabs) {
+        const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        effectiveTabId = activeTabs[0]?.id;
+      }
+      if (effectiveTabId) {
+        mediaStreamRegistry.registerMedia(effectiveTabId, {
+          url: playlistUrl,
+          title: pageTitle || filename,
+          filename,
+          type: 'video',
+          ext: 'mp4',
+          origin: origin || 'stream-sniffer',
+          timestamp: Date.now(),
+          isStreamManifest: isM3U8 || isMPD,
+          resolution: 'Adaptive HD',
+        });
+      }
+
+      if (autoDownload) {
+        const existing = await coordinator.findDownloadByUrl(playlistUrl);
+        if (existing) return { ok: true, download: existing };
+
+        const dl = await coordinator.addStreamDownload({
+          url: playlistUrl,
+          filename,
+          referrer: pageUrl || sender?.tab?.url,
+        });
+        return { ok: true, download: dl };
+      }
+
+      return { ok: true, registered: true };
+    }
+
+    case MSG.GET_TAB_MEDIA_STREAMS: {
+      let tabId = msg.tabId || msg.payload?.tabId || sender?.tab?.id;
+      if (!tabId && typeof chrome !== 'undefined' && chrome.tabs) {
+        const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+        tabId = active?.id;
+      }
+      const streams = tabId ? mediaStreamRegistry.getMediaForTab(tabId) : [];
+      return { ok: true, items: streams };
     }
 
     case MSG.DIRECT_SAVE_COMPLETED: {
@@ -296,7 +353,18 @@ export async function handleMessage(
             target: { tabId: targetTab.id },
             func: scrapePageMediaAndLinks,
           });
-          const items = results?.[0]?.result || [];
+          const items: any[] = results?.[0]?.result || [];
+
+          // Merge live network-captured streams from media registry
+          const liveMedia = mediaStreamRegistry.getMediaForTab(targetTab.id);
+          const seenUrls = new Set(items.map((i: any) => i.url));
+          for (const m of liveMedia) {
+            if (!seenUrls.has(m.url)) {
+              items.unshift(m);
+              seenUrls.add(m.url);
+            }
+          }
+
           return {
             ok: true,
             items,

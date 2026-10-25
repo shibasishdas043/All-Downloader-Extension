@@ -213,7 +213,19 @@ export function buildRow(dl: any, index = 0): HTMLTableRowElement {
       <div class="file-cell">
         <div class="file-ext-badge">${badgeMarkup}</div>
         <div class="file-meta-wrap">
-          <span class="file-name" title="${escHtml(dl.filename)}">${escHtml(truncateName(dl.filename, 36))}</span>
+          <div class="file-name-row">
+            <span class="file-name" title="${escHtml(dl.filename)}">${escHtml(truncateName(dl.filename, 36))}</span>
+            ${dl.smartBadge ? `
+              <span class="smart-badge-pill" title="Classified: ${escHtml(dl.smartBadge.label)}">
+                <span class="smart-icon">${dl.smartBadge.icon}</span>
+                <span class="smart-label">${escHtml(dl.smartBadge.label)}</span>
+              </span>
+              <button type="button" class="smart-folder-link" data-id="${dl.id}" title="Click to open folder: ${escHtml(dl.smartBadge.folder)}">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                <span>${escHtml(dl.smartBadge.folder)}</span>
+              </button>
+            ` : ''}
+          </div>
           <span class="file-url" title="${escHtml(dl.url)}">${escHtml(dl.url)}</span>
         </div>
       </div>
@@ -293,7 +305,48 @@ export function updateTableRowState(id: string): void {
   }
 }
 
+export function renderDynamicDashboardShelves(): void {
+  const container = document.getElementById('dashboard-smart-shelves');
+  if (!container) return;
+
+  const all = Object.values(state.downloads);
+  const shelfCounts = new Map<string, { label: string; icon: string; count: number }>();
+
+  for (const dl of all) {
+    if ((dl as any).smartBadge?.shelfKey) {
+      const key = (dl as any).smartBadge.shelfKey;
+      const existing = shelfCounts.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        shelfCounts.set(key, {
+          label: (dl as any).smartBadge.label,
+          icon: (dl as any).smartBadge.icon,
+          count: 1,
+        });
+      }
+    }
+  }
+
+  if (shelfCounts.size === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'flex';
+  let html = `<span class="smart-shelf-label">Smart Shelves:</span>`;
+  html += `<button type="button" class="smart-shelf-chip ${state.activeSmartShelf === 'all' ? 'active' : ''}" data-shelf="all">All Shelves (${all.length})</button>`;
+
+  for (const [key, data] of shelfCounts.entries()) {
+    const isActive = state.activeSmartShelf === key ? 'active' : '';
+    html += `<button type="button" class="smart-shelf-chip ${isActive}" data-shelf="${key}">${data.icon} ${data.label} (${data.count})</button>`;
+  }
+
+  container.innerHTML = html;
+}
+
 export function renderDownloadsTable(): void {
+  renderDynamicDashboardShelves();
   const list = getFilteredDownloads();
   const tbody = document.getElementById('dl-tbody');
   const empty = document.getElementById('table-empty');
@@ -459,6 +512,15 @@ export function bindTableDelegation(): void {
 
   tbody.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
+
+    // 0. Smart folder jump button click (Zero-click OS Explorer open)
+    const folderJump = target.closest('.smart-folder-link') as HTMLElement | null;
+    if (folderJump) {
+      e.stopPropagation();
+      const id = folderJump.dataset.id;
+      if (id) await act(MSG.SHOW_IN_FOLDER, id);
+      return;
+    }
 
     // 1. Action button click
     const btn = target.closest('.row-btn') as HTMLElement | null;

@@ -2,6 +2,34 @@
 //  All-Downloader — Type Definitions
 // ============================================================
 
+// ── Routing Rule Types ────────────────────────────────────────
+export type RuleConditionField = 'domain' | 'category' | 'url_pattern' | 'ext' | 'filename' | 'title' | 'mime';
+export type RuleConditionOp    = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' | 'regex' | 'in' | 'not_in';
+export type RuleAction         = 'route_to' | 'rename' | 'both';
+
+export interface RoutingRuleCondition {
+  field: RuleConditionField;
+  op: RuleConditionOp;
+  /** Comma-separated list for 'in' operator; plain string for others */
+  value: string;
+}
+
+export interface RoutingRule {
+  id: string;
+  /** Human-readable name shown in the UI */
+  name: string;
+  enabled: boolean;
+  /** Lower value = evaluated first */
+  priority: number;
+  /** ALL conditions must match (AND logic) */
+  conditions: RoutingRuleCondition[];
+  action: RuleAction;
+  /** Save path template, may contain tokens like {domain}, {date}, etc. */
+  savePath?: string;
+  /** Filename template, may contain tokens like {original_name}, {ext}, etc. */
+  filenameTemplate?: string;
+}
+
 export type DownloadState =
   | 'queued'
   | 'connecting'
@@ -41,6 +69,7 @@ export interface DownloadResult {
 export interface DownloadItem {
   id: string;
   url: string;
+  resolvedUrl?: string;
   filename: string;
   filesize: number;
   receivedBytes: number;
@@ -77,6 +106,22 @@ export interface DownloadItem {
   percent?: number;
   referrer?: string;
   autoReconnecting?: boolean;
+  isHlsStream?: boolean;
+  hlsSegmentCount?: number;
+  hlsSegmentsCompleted?: number;
+  hlsPlaylistUrl?: string;
+  hlsTotalDuration?: number;
+  pageTitle?: string;
+  smartCategory?: string;
+  smartFolder?: string;
+  smartShelfKey?: string;
+  smartBadge?: {
+    label: string;
+    icon: string;
+    folder: string;
+    shelfKey?: string;
+    color?: string;
+  };
 }
 
 export interface ExtensionSettings {
@@ -95,6 +140,20 @@ export interface ExtensionSettings {
   maxHistoryItems: number;
   hideChromeShelf?: boolean;
   autoCheckUpdates?: boolean;
+  /** Master on/off toggle for Smart Routing Rules */
+  enableRoutingRules: boolean;
+  /** Ordered list of routing rules (sorted by priority ascending) */
+  routingRules: RoutingRule[];
+  /** Master on/off toggle for Hover Grab floating action button on web media */
+  enableHoverGrab?: boolean;
+  /** Master on/off toggle for Contextual Intent Smart Routing (default: true) */
+  enableSmartRouting?: boolean;
+  /** Dynamic organization hierarchy mode */
+  smartRoutingStructure?: 'contextual' | 'domain' | 'category' | 'date';
+  /** Whether to normalize cryptic server filenames using detected page metadata */
+  smartFilenameClean?: boolean;
+  /** Master on/off toggle for Universal Right-Click & Copy Protection Unblocking (default: true) */
+  unblockRightClick?: boolean;
 }
 
 export interface UpdateCheckResult {
@@ -126,6 +185,7 @@ export interface SniffedMediaItem {
   height?: number;
   resolution?: string;
   origin?: string;
+  referrer?: string;
 }
 
 export interface ExtensionStats {

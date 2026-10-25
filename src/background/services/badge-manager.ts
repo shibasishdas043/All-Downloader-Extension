@@ -18,11 +18,17 @@ export function updateBadge(downloads: Iterable<DownloadItem>): void {
     (dl: any) => ACTIVE_STATES.includes(dl.status || dl.state)
   ).length;
 
-  if (activeCount > 0) {
-    chrome.action.setBadgeBackgroundColor({ color: '#219ebc' });
-    chrome.action.setBadgeText({ text: String(activeCount) });
-  } else {
-    chrome.action.setBadgeText({ text: '' });
+  try {
+    if (typeof chrome === 'undefined' || !chrome.action) return;
+
+    if (activeCount > 0) {
+      chrome.action.setBadgeBackgroundColor({ color: '#219ebc' });
+      chrome.action.setBadgeText({ text: String(activeCount) });
+    } else {
+      chrome.action.setBadgeText({ text: '' });
+    }
+  } catch {
+    // Ignore when chrome.action is unavailable in worker/test context
   }
 }
 

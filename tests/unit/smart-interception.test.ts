@@ -71,6 +71,29 @@ describe('Dynamic, Format-Agnostic Interception for All Downloads', () => {
     );
   });
 
+  test('captures finalUrl on redirect when intercepting installers or executables', async () => {
+    const addDownloadSpy = vi.spyOn(coordinator, 'addDownload').mockResolvedValue({} as any);
+
+    await coordinator.handleChromeDownloadCreated({
+      id: 103,
+      url: 'https://github.com/app/releases/download/v1/setup.exe',
+      finalUrl: 'https://release-assets.githubusercontent.com/production/setup.exe?token=123',
+      filename: 'setup.exe',
+      totalBytes: 500_000_000,
+      fileSize: 500_000_000,
+      mime: 'application/octet-stream',
+    } as any);
+
+    expect(chrome.downloads.cancel).toHaveBeenCalledWith(103, expect.any(Function));
+    expect(addDownloadSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://github.com/app/releases/download/v1/setup.exe',
+        finalUrl: 'https://release-assets.githubusercontent.com/production/setup.exe?token=123',
+        filename: 'setup.exe',
+      })
+    );
+  });
+
   test('adopts large files (> 1.5GB) directly into native stream without cancel to prevent system busy', async () => {
     const addDownloadSpy = vi.spyOn(coordinator, 'addDownload').mockResolvedValue({} as any);
 
@@ -115,7 +138,6 @@ describe('Filename & Path Determination via onDeterminingFilename & pendingBlobS
   test('suggests targetSavePath with conflictAction uniquify using pendingBlobSaves', () => {
     coordinator.pendingBlobSaves.set('blob:chrome-extension://adl/test-blob', {
       id: 'dl_abc',
-      blobUrl: 'blob:chrome-extension://adl/test-blob',
       safeFilename: 'custom-file.pkg',
       fileSize: 100_000_000,
       targetSavePath: 'AllDownloader/custom-file.pkg',

@@ -61,6 +61,13 @@
   </div>
 
   <!-- ═══════════════════════════════════════════════
+       SMART SHELVES FILTER BAR (Dynamic Self-Organizing)
+  ══════════════════════════════════════════════════ -->
+  <div class="popup-smart-shelves" id="popup-smart-shelves" style="display: none;">
+    <!-- Populated dynamically based on user download contents -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
        DOWNLOAD LIST
   ══════════════════════════════════════════════════ -->
   <main class="download-list" id="download-list">
@@ -243,6 +250,7 @@
         </div>
         <div class="dl-info">
           <span class="dl-name"></span>
+          <div class="dl-smart-row" style="display: none;"></div>
           <span class="dl-meta"></span>
         </div>
         <div class="dl-controls">

@@ -11,7 +11,8 @@ import {
   loadDownloads, saveDownloads, recordCompletion, clearChunks
 } from '../storage.js';
 import { startDownload, pauseDownload, cancelDownload, RateLimiter } from '../download-engine.js';
-import { probeUrl } from '../download-engine/probe.js';
+import { probeUrl, DEFAULT_HEAD_TIMEOUT_MS } from '../download-engine/probe.js';
+import { resolveRealMediaUrl, isHtmlContentType, isMediaIntent } from './media-link-resolver.js';
 import { QueueManager } from '../queue-manager.js';
 import type { DownloadItem, ExtensionSettings, DownloadState } from '../../shared/types.js';
 import { sanitizeFilename, buildSavePath, escapeRegex } from './path-sanitizer.js';
@@ -25,11 +26,18 @@ import {
 import { showDownloadStartedToast } from './toast-manager.js';
 import { RightClickDetector, urlsMatch, getFilename } from './right-click-detector.js';
 import { keepAliveGuard } from './keep-alive.js';
+import { RoutingEngine, buildRoutingContext } from './routing-engine.js';
+import { resolveDownloadRoute, type SmartRoutingResolution } from './smart-routing-resolver.js';
+import { HlsStreamCoordinator } from './hls-stream-coordinator.js';
+
 
 export interface AddDownloadOptions {
   url: string;
+  finalUrl?: string;
+  resolvedUrl?: string;
   filename?: string;
   referrer?: string;
+  pageTitle?: string;
   mimeType?: string;
   scheduledAt?: number | null;
 }
@@ -46,7 +54,10 @@ export class DownloadCoordinator {
   public rightClickDetector = new RightClickDetector();
   public queue: QueueManager;
   public rateLimiter: RateLimiter;
+  public routingEngine: RoutingEngine;
+  public hlsCoordinator: HlsStreamCoordinator;
   public autoRetryBudget = new Map<string, number>();
+
   public onIdle?: () => void;
   public static readonly MAX_AUTO_RETRIES = 5;
   public static readonly AUTO_RETRY_DELAYS = [3_000, 8_000, 20_000, 60_000, 120_000];
@@ -72,7 +83,10 @@ export class DownloadCoordinator {
   constructor(settings: ExtensionSettings) {
     this.settings = settings;
     this.rateLimiter = new RateLimiter(settings.speedLimitKBps || 0);
+    this.routingEngine = new RoutingEngine(settings.routingRules || []);
+    this.hlsCoordinator = new HlsStreamCoordinator(this);
     this.queue = new QueueManager({
+
       maxConcurrent: settings.maxConcurrent,
       onDequeue: (downloadId: string) => {
         this.executeDownload(downloadId);
@@ -88,7 +102,9 @@ export class DownloadCoordinator {
     this.settings = newSettings;
     this.queue.setMaxConcurrent(newSettings.maxConcurrent);
     this.rateLimiter.setRate(newSettings.speedLimitKBps || 0);
+    this.routingEngine.setRules(newSettings.routingRules || []);
     this.applyUiOptions();
+
     this.pruneHistory();
   }
 
@@ -98,6 +114,35 @@ export class DownloadCoordinator {
         (chrome.downloads as any).setUiOptions({ enabled: !this.settings.hideChromeShelf });
       } catch {}
     }
+  }
+
+  /**
+   * Resolves the final save path (and optionally filename) for a download:
+   *  1. If user custom routing rules are enabled, evaluates rules in priority order.
+   *  2. If smart semantic routing is enabled, classifies file intent (Notes, Results, Statements, etc.).
+   *  3. Falls back to global defaultSavePath + optional categoryFolder.
+   * All output is passed through buildSavePath() for proper sanitization.
+   */
+  public resolveSavePath(
+    url: string,
+    filename: string,
+    category: import('../../shared/types.js').FileCategory,
+    categoryFolder: string | undefined,
+    pageTitle?: string,
+    referrer?: string,
+    mime?: string | null,
+  ): SmartRoutingResolution {
+    return resolveDownloadRoute({
+      url,
+      filename,
+      category,
+      categoryFolder,
+      pageTitle,
+      referrer,
+      mime: mime || undefined,
+      settings: this.settings,
+      routingEngine: this.routingEngine,
+    });
   }
 
   public async updateState(
@@ -158,22 +203,126 @@ export class DownloadCoordinator {
     return updated;
   }
 
+  public async findDownloadByUrl(url: string): Promise<DownloadItem | null> {
+    for (const dl of this.downloadCache.values()) {
+      if (dl.url === url || (dl as any).hlsPlaylistUrl === url) return dl;
+    }
+    const all = await loadDownloads();
+    for (const dl of Object.values(all)) {
+      if (dl.url === url || (dl as any).hlsPlaylistUrl === url) return dl;
+    }
+    return null;
+  }
+
+  public deriveFilenameFromStream(playlistUrl: string, pageTitle?: string): string {
+    const safeTitle = (pageTitle || '')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, '_')
+      .slice(0, 50)
+      .replace(/^_+|_+$/g, '');
+    if (safeTitle) return `${safeTitle}.mp4`;
+    const cleanUrl = playlistUrl.split('?')[0];
+    const base = cleanUrl.split('/').pop()?.replace(/\.(m3u8|mpd)$/i, '') || 'stream';
+    return `${base}.mp4`;
+  }
+
+  public async addStreamDownload(options: { url: string; filename: string; referrer?: string }): Promise<DownloadItem> {
+    const id = generateId();
+    const safeName = sanitizeFilename(options.filename);
+    const item: DownloadItem = {
+      id,
+      url: options.url,
+      filename: safeName,
+      filesize: 0,
+      receivedBytes: 0,
+      progress: 0,
+      speed: 0,
+      eta: null,
+      status: DOWNLOAD_STATE.CONNECTING as DownloadState,
+      category: 'video',
+      createdAt: Date.now(),
+      isHlsStream: true,
+      hlsPlaylistUrl: options.url,
+      referrer: options.referrer,
+    };
+
+    await upsertDownload(item);
+    this.downloadCache.set(id, item);
+    broadcastMessage({ type: MSG.DOWNLOAD_ADDED, download: item });
+
+    // Execute capture asynchronously
+    this.hlsCoordinator.captureStream({
+      id,
+      playlistUrl: options.url,
+      filename: safeName,
+      referrer: options.referrer,
+    });
+
+    return item;
+  }
+
   public async addDownload({
     url,
+    finalUrl,
+    resolvedUrl,
     filename,
     referrer = '',
+    pageTitle = '',
     mimeType,
     scheduledAt = null,
   }: AddDownloadOptions): Promise<DownloadItem> {
+    const effectiveResolvedUrl = resolvedUrl || finalUrl;
+    const lowerUrl = (effectiveResolvedUrl || url).toLowerCase().split('?')[0];
+    const isStreamManifest =
+      lowerUrl.endsWith('.m3u8') ||
+      lowerUrl.endsWith('.mpd') ||
+      lowerUrl.includes('.m3u8') ||
+      lowerUrl.includes('.mpd') ||
+      (mimeType && (mimeType.includes('mpegurl') || mimeType.includes('dash+xml')));
+
+    if (isStreamManifest) {
+      const streamFilename = this.deriveFilenameFromStream(effectiveResolvedUrl || url, pageTitle || filename);
+      return this.addStreamDownload({
+        url: effectiveResolvedUrl || url,
+        filename: filename || streamFilename,
+        referrer,
+      });
+    }
+
     const id = generateId();
-    const name = filename || getFilenameFromUrl(url);
+    const name = filename || getFilenameFromUrl(effectiveResolvedUrl || url);
     const detectedCategory = detectCategory(name, mimeType);
+    const categoryFolder = this.settings.organizeByCategoryFolders
+      ? (CATEGORY_FOLDER_NAMES[detectedCategory] || undefined)
+      : undefined;
+
+    // Pre-calculate smart routing destination & fast-access badge
+    const routeRes = this.resolveSavePath(
+      effectiveResolvedUrl || url,
+      name,
+      detectedCategory,
+      categoryFolder,
+      pageTitle,
+      referrer,
+      mimeType,
+    );
+
+    const effectiveName = routeRes.filename || name;
+    const effectiveSavePath = routeRes.savePath;
+
     const download: DownloadItem = {
       id,
       url,
-      filename: name,
+      resolvedUrl: effectiveResolvedUrl,
+      filename: effectiveName,
+      savePath: effectiveSavePath,
       category: detectedCategory,
       mimeType: mimeType || null,
+      pageTitle: pageTitle || undefined,
+      smartCategory: routeRes.smartBadge?.label,
+      smartFolder: routeRes.smartBadge?.folder,
+      smartShelfKey: routeRes.smartBadge?.shelfKey,
+      smartBadge: routeRes.smartBadge,
       filesize: 0,
       receivedBytes: 0,
       progress: 0,
@@ -203,7 +352,7 @@ export class DownloadCoordinator {
 
     broadcastMessage({ type: MSG.DOWNLOAD_ADDED, download });
     updateBadge(this.downloadCache.values());
-    showDownloadStartedToast(name);
+    showDownloadStartedToast(effectiveName);
 
     if (this.settings.autoStart) {
       this.queue.enqueue(id, scheduledAt);
@@ -235,12 +384,56 @@ export class DownloadCoordinator {
     if (totalBytes <= 0) {
       try {
         const meta = await probeUrl(
-          dl.url,
-          new AbortController().signal
+          dl.resolvedUrl || dl.url,
+          new AbortController().signal,
+          DEFAULT_HEAD_TIMEOUT_MS,
+          dl.referrer
         );
         totalBytes = meta.contentLength || 0;
         rangeSupported = meta.acceptsRanges;
-        if (totalBytes > 0) {
+        if (meta.resolvedUrl && meta.resolvedUrl !== dl.url) {
+          dl.resolvedUrl = meta.resolvedUrl;
+        }
+
+        // Universal HTML Response Trap & Recovery Algorithm
+        const isHtmlTrap = meta.isHtmlTrap || isHtmlContentType(meta.mimeType);
+        if (isHtmlTrap && isMediaIntent(dl.category, dl.filename)) {
+          console.log(`[ADL] Detected HTML trap for ${dl.filename}. Attempting universal media resolution...`);
+          const recovered = await resolveRealMediaUrl({
+            url: dl.url,
+            referrer: dl.referrer,
+            expectedCategory: dl.category,
+            expectedFilename: dl.filename,
+          });
+
+          if (recovered) {
+            console.log(`[ADL] Successfully resolved real media URL: ${recovered.resolvedUrl}`);
+            dl.resolvedUrl = recovered.resolvedUrl;
+            if (recovered.size > 0) {
+              totalBytes = recovered.size;
+              dl.filesize = recovered.size;
+            }
+            if (recovered.mimeType) {
+              dl.mimeType = recovered.mimeType;
+            }
+            rangeSupported = recovered.acceptsRanges;
+            await upsertDownload(dl);
+          } else {
+            // Cannot recover media URL — prevent writing corrupt .htm file to disk!
+            const errorMsg = `Server returned a webpage (HTML) instead of the expected ${dl.category || 'media file'}. The direct download link may be protected or expired.`;
+            await this.updateState(downloadId, DOWNLOAD_STATE.ERROR as DownloadState, {
+              error: errorMsg,
+              errorMessage: errorMsg,
+            });
+            this.queue.markDone(downloadId);
+            broadcastMessage({
+              type: MSG.DOWNLOAD_ERROR,
+              id: downloadId,
+              error: errorMsg,
+            });
+            return;
+          }
+        } else if (totalBytes > 0) {
           dl.filesize = totalBytes;
           await upsertDownload(dl);
         }
@@ -353,7 +546,24 @@ export class DownloadCoordinator {
           const categoryFolder = this.settings.organizeByCategoryFolders
             ? (CATEGORY_FOLDER_NAMES[resolvedCategory] || undefined)
             : undefined;
-          const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
+          const routeRes = this.resolveSavePath(
+            dl.resolvedUrl || dl.url,
+            safeFilename,
+            resolvedCategory,
+            categoryFolder,
+            dl.pageTitle,
+            dl.referrer,
+            resolvedMime,
+          );
+          const finalSavePath = routeRes.savePath;
+          const finalSafeFilename = sanitizeFilename(routeRes.filename);
+          if (routeRes.smartBadge) {
+            dl.smartBadge = routeRes.smartBadge;
+            dl.smartCategory = routeRes.smartBadge.label;
+            dl.smartFolder = routeRes.smartBadge.folder;
+            dl.smartShelfKey = routeRes.smartBadge.shelfKey;
+          }
+
 
           // If the file is 1.5 GB or larger, Chrome's internal blob download pipeline crashes/overflows (2GB cap).
           // Save directly via the File System Access API streaming saver instead.
@@ -387,7 +597,7 @@ export class DownloadCoordinator {
             if (this.settings.showNotifications) {
               showNotification(
                 'Download Complete — Save to Disk',
-                `${safeFilename} is 100% downloaded. Click "Save to Disk" in the extension to choose your save location.`
+                `${finalSafeFilename} is 100% downloaded. Click "Save to Disk" in the extension to choose your save location.`
               );
             }
             return;
@@ -403,7 +613,8 @@ export class DownloadCoordinator {
             receivedBytes: actualSize,
             totalChunks: result.chunkCount,
             chunkCount: result.chunkCount,
-            savePath,
+            savePath: finalSavePath,
+            filename: finalSafeFilename,
           });
 
           // 1. Ensure Offscreen Document is active and retain assembly slot for this download
@@ -451,8 +662,8 @@ export class DownloadCoordinator {
           this.ownBlobUrls.add(blobUrl);
           this.pendingBlobSaves.set(blobUrl, {
             id,
-            targetSavePath: savePath,
-            safeFilename,
+            targetSavePath: finalSavePath,
+            safeFilename: finalSafeFilename,
             fileSize: actualSize,
           });
 
@@ -468,7 +679,8 @@ export class DownloadCoordinator {
             receivedBytes: actualSize,
             totalChunks: result.chunkCount,
             chunkCount: result.chunkCount,
-            savePath,
+            savePath: finalSavePath,
+            filename: finalSafeFilename,
           });
 
           // 3. Initiate save via chrome.downloads.download() from the service worker.
@@ -584,6 +796,10 @@ export class DownloadCoordinator {
         if (meta.hashExpected && !dl.hashExpected) {
           updates.hashExpected = meta.hashExpected;
         }
+        if (meta.resolvedUrl) {
+          updates.resolvedUrl = meta.resolvedUrl;
+          dl.resolvedUrl = meta.resolvedUrl;
+        }
         if (meta.totalSize > 0) {
           updates.total = meta.totalSize;
           updates.filesize = meta.totalSize;
@@ -642,8 +858,24 @@ export class DownloadCoordinator {
       const categoryFolder = this.settings.organizeByCategoryFolders
         ? (CATEGORY_FOLDER_NAMES[resolvedCategory] || undefined)
         : undefined;
-      const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
+      const routeRes = this.resolveSavePath(
+        dl.resolvedUrl || dl.url,
+        safeFilename,
+        resolvedCategory,
+        categoryFolder,
+        dl.pageTitle,
+        dl.referrer,
+        dl.mimeType,
+      );
+      const savePath = routeRes.savePath;
+      if (routeRes.smartBadge) {
+        dl.smartBadge = routeRes.smartBadge;
+        dl.smartCategory = routeRes.smartBadge.label;
+        dl.smartFolder = routeRes.smartBadge.folder;
+        dl.smartShelfKey = routeRes.smartBadge.shelfKey;
+      }
       const chunkCount = dl.totalChunks || (dl as any).chunkCount || 1;
+
 
       retainOffscreenAssembly(id);
       await ensureOffscreenDocument();
@@ -668,7 +900,7 @@ export class DownloadCoordinator {
       this.pendingBlobSaves.set(blobUrl, {
         id,
         targetSavePath: savePath,
-        safeFilename,
+        safeFilename: routeRes.filename ? sanitizeFilename(routeRes.filename) : safeFilename,
         fileSize: actualSize,
       });
       keepAliveGuard.retain();
@@ -796,13 +1028,32 @@ export class DownloadCoordinator {
     const categoryFolder = this.settings.organizeByCategoryFolders
       ? (CATEGORY_FOLDER_NAMES[resolvedCategory] || undefined)
       : undefined;
-    const savePath = buildSavePath(this.settings.defaultSavePath, safeFilename, categoryFolder);
+    const routeRes = this.resolveSavePath(
+      dl.resolvedUrl || dl.url,
+      safeFilename,
+      resolvedCategory,
+      categoryFolder,
+      dl.pageTitle,
+      dl.referrer,
+      dl.mimeType,
+    );
+    const savePath = routeRes.savePath;
+    const finalSafeFilename = sanitizeFilename(routeRes.filename);
+    if (routeRes.smartBadge) {
+      dl.smartBadge = routeRes.smartBadge;
+      dl.smartCategory = routeRes.smartBadge.label;
+      dl.smartFolder = routeRes.smartBadge.folder;
+      dl.smartShelfKey = routeRes.smartBadge.shelfKey;
+    }
+
 
     await this.updateState(id, DOWNLOAD_STATE.CONNECTING as DownloadState, {
       startedAt: Date.now(),
       chunked: false,
       savePath,
+      filename: finalSafeFilename,
     });
+
 
     broadcastMessage({
       type: MSG.DOWNLOAD_PROGRESS,
@@ -815,11 +1066,13 @@ export class DownloadCoordinator {
       const chromeId = await new Promise<number>((resolve, reject) => {
         chrome.downloads.download(
           {
-            url: dl.url,
+            url: dl.resolvedUrl || dl.url,
             filename: savePath,
             conflictAction: 'uniquify',
             saveAs: false,
+            headers: dl.referrer ? [{ name: 'Referer', value: dl.referrer }] : undefined,
           },
+
           (downloadId) => {
             if (chrome.runtime.lastError || !downloadId) {
               reject(new Error(chrome.runtime.lastError?.message || 'Failed to start download stream'));
@@ -1467,20 +1720,46 @@ export class DownloadCoordinator {
       // ignore
     }
 
+    let originatingPageTitle = '';
+    try {
+      if (typeof chrome !== 'undefined' && chrome.tabs?.query) {
+        const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTabs[0]?.title) {
+          originatingPageTitle = activeTabs[0].title;
+        }
+      }
+    } catch {}
+
     await this.addDownload({
       url: item.url,
-      filename: item.filename || getFilenameFromUrl(item.url),
+      finalUrl: item.finalUrl && item.finalUrl !== item.url ? item.finalUrl : undefined,
+      filename: item.filename || getFilenameFromUrl(item.finalUrl || item.url),
       mimeType: item.mime || undefined,
       referrer: item.referrer || '',
+      pageTitle: originatingPageTitle,
     });
   }
 
   public async showInFolder(id: string): Promise<boolean> {
     const dl = await getDownload(id);
     if (!dl) return false;
-    const filename = dl.filename || '';
+
+    // 1. Direct Chrome Download ID mapped lookup (fastest & most reliable)
+    const mappedChromeId = this.extensionToChromeMap.get(id) || dl.chromeDownloadId;
+    if (mappedChromeId) {
+      try {
+        chrome.downloads.show(mappedChromeId);
+        return true;
+      } catch {
+        // Fall through to query below
+      }
+    }
+
+    // 2. Query Chrome downloads by normalized leaf filename or savePath
+    const filename = dl.filename || dl.savePath || '';
+    const safeBase = filename.split(/[\\/]/).pop() || filename;
     chrome.downloads.search(
-      { filenameRegex: escapeRegex(filename) + '$', limit: 1, orderBy: ['-startTime'] },
+      { filenameRegex: escapeRegex(safeBase) + '$', limit: 1, orderBy: ['-startTime'] },
       (results) => {
         if (results && results.length > 0 && results[0]) {
           chrome.downloads.show(results[0].id);

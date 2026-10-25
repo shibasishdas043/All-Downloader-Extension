@@ -3,7 +3,7 @@
 // ============================================================
 import { MSG, DOWNLOAD_STATE, UI } from '../../shared/constants.js';
 import { $list, $empty, $modalAdd, $urlInput, showModal, hideModal } from './dom.js';
-import { downloads, setDownload, getAllDownloads } from './state.js';
+import { downloads, setDownload, getAllDownloads, setActiveShelfFilter } from './state.js';
 import {
   pauseDl, resumeDl, cancelDl, deleteDl,
   showInFolder, retryDl, pauseAll,
@@ -14,8 +14,30 @@ import { sendMsg } from './api.js';
 import { SnifferController } from '../../shared/sniffer-controller.js';
 
 export function bindEvents(): void {
+  // Smart Shelves Filter Pills (Zero-Click Access)
+  document.getElementById('popup-smart-shelves')?.addEventListener('click', (e: MouseEvent) => {
+    const pill = (e.target as HTMLElement).closest('.shelf-pill') as HTMLElement | null;
+    if (!pill) return;
+    const shelf = pill.dataset.shelf || 'all';
+    document.querySelectorAll('#popup-smart-shelves .shelf-pill').forEach(p => p.classList.remove('active'));
+    pill.classList.add('active');
+    setActiveShelfFilter(shelf);
+    renderAll();
+  });
+
   $list.addEventListener('click', (e: MouseEvent) => {
     const target = e.target as HTMLElement | null;
+
+    // 0. Direct Smart Folder Jump button click (Zero-click OS file explorer open)
+    const folderJump = target?.closest('.popup-folder-jump-btn');
+    if (folderJump) {
+      e.stopPropagation();
+      const item = folderJump.closest('.dl-item') as HTMLElement | null;
+      if (item?.dataset.id) {
+        showInFolder(item.dataset.id);
+      }
+      return;
+    }
 
     // 1. Control button click
     const btn = target?.closest('.ctrl-btn');
@@ -102,7 +124,7 @@ export function bindEvents(): void {
         for (const item of items) {
           await sendMsg({
             type: MSG.START_DOWNLOAD,
-            payload: { url: item.url, filename: item.filename }
+            payload: { url: item.url, filename: item.filename, referrer: item.referrer }
           });
         }
       }

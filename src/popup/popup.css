@@ -1620,6 +1620,29 @@ body {
   line-height: 1.2;
 }
 
+#modal-sniffer .sniffer-btn-row-dl {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  border: 1px solid var(--border-color, #e2e8f0);
+  background: var(--bg-card, #ffffff);
+  color: var(--text-muted, #64748b);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  margin-left: 4px;
+}
+
+#modal-sniffer .sniffer-btn-row-dl:hover {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+  transform: translateY(-1px);
+}
+
 /* Sniffer Footer */
 #modal-sniffer .sniffer-footer {
   display: flex;
@@ -1669,4 +1692,92 @@ body {
   font-weight: 600;
   border-radius: var(--radius-pill);
   white-space: nowrap;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   SMART SHELVES & CONTEXTUAL BADGES (Zero-Click Access)
+════════════════════════════════════════════════════════════════ */
+.popup-smart-shelves {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  background: var(--bg-card);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.popup-smart-shelves::-webkit-scrollbar {
+  display: none;
+}
+
+.shelf-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-pill);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.shelf-pill:hover {
+  background: var(--bg-pill-hover);
+  color: var(--text-primary);
+}
+
+.shelf-pill.active {
+  background: var(--text-primary);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.dl-smart-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  margin-bottom: 2px;
+}
+
+.popup-smart-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1.5px 5px;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  white-space: nowrap;
+}
+
+.popup-folder-jump-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1.5px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--bg-pill);
+  cursor: pointer;
+  max-width: 165px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: all 0.15s ease;
+}
+
+.popup-folder-jump-btn:hover {
+  background: var(--bg-pill-hover);
+  color: var(--text-primary);
 }

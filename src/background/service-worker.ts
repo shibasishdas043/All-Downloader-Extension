@@ -14,6 +14,7 @@ import {
   updateBadge,
   keepAliveGuard,
   updateManager,
+  mediaStreamRegistry,
 } from './services/index.js';
 import { restoreDefaultIcon } from './icon-animator.js';
 
@@ -26,6 +27,7 @@ export async function ensureInitialized(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       try {
+        mediaStreamRegistry.initWebRequestSniffer();
         const loaded = await loadSettings();
         settings = loaded;
         coordinator.updateSettings(loaded);
@@ -130,11 +132,11 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 //  Message Handling (UI ↔ SW)
 // ─────────────────────────────────────────────────────────────
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   ensureInitialized()
     .then(() => handleMessage(msg, coordinator, (updatedSettings) => {
       settings = updatedSettings;
-    }))
+    }, sender))
     .then(sendResponse)
     .catch((err) => {
       sendResponse({ ok: false, error: err?.message || 'Error handling message' });

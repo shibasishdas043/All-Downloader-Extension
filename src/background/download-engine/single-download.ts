@@ -18,14 +18,25 @@ export async function executeSingleDownload({
   progress,
   emit,
 }: SingleDownloadParams): Promise<DownloadResult> {
-  const releaseSlot = await hostGovernor.acquireDataSlot(download.id, download.url, controller.signal, 1);
+  const targetUrl = download.resolvedUrl || download.url;
+  const releaseSlot = await hostGovernor.acquireDataSlot(download.id, targetUrl, controller.signal, 1);
 
   try {
-    const res = await fetch(download.url, {
+    const headers: Record<string, string> = {};
+    if (download.referrer) {
+      headers['Referer'] = download.referrer;
+    }
+
+    const res = await fetch(targetUrl, {
       signal: controller.signal,
+      headers,
       credentials: 'include',
       redirect: 'follow',
     });
+
+    if (res.url && !download.resolvedUrl) {
+      download.resolvedUrl = res.url;
+    }
 
     if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
     if (!res.body) throw new Error('Response body is null');
@@ -42,6 +53,13 @@ export async function executeSingleDownload({
 
     const rawMime = res.headers.get('Content-Type') || '';
     const mimeType = rawMime.split(';')[0].trim().toLowerCase() || fallbackMime || 'application/octet-stream';
+
+    // Prevent saving HTML pages when user intended to download media
+    const isHtml = mimeType === 'text/html' || mimeType === 'application/xhtml+xml';
+    const expectedCategory = download.category;
+    if (isHtml && expectedCategory && ['video', 'audio', 'image', 'archive'].includes(expectedCategory)) {
+      throw new Error(`Server returned a webpage (text/html) instead of the expected ${expectedCategory}. Direct media link may be protected or expired.`);
+    }
     const reader = res.body.getReader();
 
     // Stream into IndexedDB in bounded 16 MB chunks so memory never exceeds 16 MB

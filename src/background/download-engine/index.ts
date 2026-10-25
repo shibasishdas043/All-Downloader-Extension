@@ -13,7 +13,7 @@ import type {
   ProgressState,
   SegmentDescriptor,
 } from './types.js';
-import { probeUrl } from './probe.js';
+import { probeUrl, DEFAULT_HEAD_TIMEOUT_MS } from './probe.js';
 import { createThrottle, type RateLimiter } from './throttler.js';
 import { executeSingleDownload } from './single-download.js';
 import { executeChunkedDownload } from './chunked-download.js';
@@ -51,10 +51,10 @@ export async function startDownload(
 
   const controller = new AbortController();
   setRegistryEntry(download.id, { controller, segments: [] });
-  hostGovernor.registerDownload(download.id, download.url);
+  hostGovernor.registerDownload(download.id, download.resolvedUrl || download.url);
 
   try {
-    const meta = await probeUrl(download.url, controller.signal);
+    const meta = await probeUrl(download.resolvedUrl || download.url, controller.signal, DEFAULT_HEAD_TIMEOUT_MS, download.referrer);
 
     const totalSize = meta.contentLength || download.filesize || 0;
     const acceptsRanges = meta.acceptsRanges;
@@ -62,9 +62,13 @@ export async function startDownload(
     const mimeType = meta.mimeType || download.mimeType || null;
     const etag = meta.etag || download.etag || null;
     const lastModified = meta.lastModified || download.lastModified || null;
+    const resolvedUrl = meta.resolvedUrl || download.resolvedUrl || null;
 
     download.etag = etag;
     download.lastModified = lastModified;
+    if (resolvedUrl) {
+      download.resolvedUrl = resolvedUrl;
+    }
 
     if (onMeta) {
       try {
@@ -76,6 +80,7 @@ export async function startDownload(
           etag,
           lastModified,
           acceptsRanges,
+          resolvedUrl,
         });
       } catch (err) {
         console.warn('[ADL] onMeta callback error:', err);
@@ -140,9 +145,12 @@ export async function startDownload(
           await clearChunks(download.id);
           progress.received = 0;
           emit();
-          const freshMeta = await probeUrl(download.url, controller.signal);
+          const freshMeta = await probeUrl(download.resolvedUrl || download.url, controller.signal, DEFAULT_HEAD_TIMEOUT_MS, download.referrer);
           download.etag = freshMeta.etag;
           download.lastModified = freshMeta.lastModified;
+          if (freshMeta.resolvedUrl) {
+            download.resolvedUrl = freshMeta.resolvedUrl;
+          }
           result = await executeChunkedDownload({
             download,
             totalSize: freshMeta.contentLength || totalSize,

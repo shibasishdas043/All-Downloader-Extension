@@ -28,6 +28,7 @@ export type MetaCallback = (meta: {
   etag?: string | null;
   lastModified?: string | null;
   acceptsRanges?: boolean;
+  resolvedUrl?: string | null;
 }) => Promise<void> | void;
 
 export interface ProgressState {
@@ -44,6 +45,8 @@ export interface ProbeMeta {
   hashExpected?: string | null;
   etag?: string | null;
   lastModified?: string | null;
+  resolvedUrl?: string | null;
+  isHtmlTrap?: boolean;
 }
 
 export interface SingleDownloadParams {

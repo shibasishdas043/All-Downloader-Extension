@@ -39,19 +39,16 @@ export function scrapePageMediaAndLinks(): SniffedMediaItem[] {
       return true;
     }
     const lower = url.toLowerCase();
-    if (
-      lower.includes('/pixel.gif') ||
-      lower.includes('/beacon.gif') ||
+    return (
+      lower.includes('/pixel.') ||
+      lower.includes('/beacon.') ||
       lower.includes('spacer.gif') ||
       lower.includes('cleardot.gif') ||
       lower.includes('/tr?') ||
-      lower.includes('google-analytics.com/collect') ||
-      lower.includes('facebook.com/tr') ||
-      lower.includes('doubleclick.net')
-    ) {
-      return true;
-    }
-    return false;
+      lower.includes('/collect?') ||
+      lower.includes('/telemetry') ||
+      lower.includes('/ping?')
+    );
   }
 
   function formatResolution(w?: number, h?: number): string | undefined {
@@ -242,6 +239,7 @@ export function scrapePageMediaAndLinks(): SniffedMediaItem[] {
       height: options.height,
       resolution,
       origin: options.origin,
+      referrer: document.baseURI || window.location.href,
     });
   }
 
@@ -407,6 +405,21 @@ export function scrapePageMediaAndLinks(): SniffedMediaItem[] {
           explicitFilename: downloadAttr,
           origin: 'link',
         });
+
+        // Normalize indirect download route prefixes (e.g. /dh-file/123 -> /download/123)
+        // when an anchor has a media download attribute or download label
+        if (downloadAttr || text.toLowerCase().includes('download')) {
+          const indirectMatch = href.match(/^([^?#]*\/)(?:dh-file|get-file|view-file|media-file|dl-file|download_item)(\/[^?#]+)(.*)$/i);
+          if (indirectMatch) {
+            const normalizedHref = `${indirectMatch[1]}download${indirectMatch[2]}${indirectMatch[3]}`;
+            addResource(normalizedHref, {
+              title: text,
+              defaultType: 'link',
+              explicitFilename: downloadAttr,
+              origin: 'link-resolved',
+            });
+          }
+        }
       }
     }
 
@@ -686,7 +699,8 @@ export function parseHtmlMediaAndLinks(html: string, baseUrl: string): SniffedMe
       title: title || filename,
       ext: ext || (type !== 'link' ? type : undefined),
       type,
-      origin
+      origin,
+      referrer: baseUrl,
     });
   }
 

@@ -98,8 +98,9 @@ export async function executeChunkedDownload({
   progress,
   emit,
 }: ChunkedDownloadParams): Promise<DownloadResult> {
-  const origin = getNormalizedOrigin(download.url);
-  const allocatedQuota = hostGovernor.getAllocatedQuota(download.id, download.url, settings.maxChunks || 8);
+  const effectiveUrl = download.resolvedUrl || download.url;
+  const origin = getNormalizedOrigin(effectiveUrl);
+  const allocatedQuota = hostGovernor.getAllocatedQuota(download.id, effectiveUrl, settings.maxChunks || 8);
   const requestedChunks = Math.max(1, Math.min(MAX_SEGMENTS, settings.maxChunks || 8));
   const maxPossibleSegs = Math.max(1, Math.floor(totalSize / MIN_SEGMENT_BYTES));
   const numSegs = Math.max(1, Math.min(requestedChunks, maxPossibleSegs));
@@ -367,7 +368,8 @@ export async function fetchSegmentOnce({
   emit,
   blobParts = [],
 }: SegmentFetchParams & { blobParts?: BlobPart[] }): Promise<void> {
-  const releaseSlot = await hostGovernor.acquireDataSlot(download.id, download.url, controller.signal);
+  const targetUrl = download.resolvedUrl || download.url;
+  const releaseSlot = await hostGovernor.acquireDataSlot(download.id, targetUrl, controller.signal);
 
   try {
     const currentOffset = seg.start + seg.received;
@@ -380,6 +382,10 @@ export async function fetchSegmentOnce({
       Range: `bytes=${currentOffset}-${seg.end}`,
     };
 
+    if (download.referrer) {
+      headers['Referer'] = download.referrer;
+    }
+
     // HTTP Cache Coherence: send If-Range validator if available
     if (download.etag) {
       headers['If-Range'] = download.etag;
@@ -387,12 +393,22 @@ export async function fetchSegmentOnce({
       headers['If-Range'] = download.lastModified;
     }
 
-    const res = await fetch(download.url, {
+    const res = await fetch(targetUrl, {
       signal: controller.signal,
       credentials: 'include',
       redirect: 'follow',
       headers,
     });
+
+    if (res.url && !download.resolvedUrl) {
+      download.resolvedUrl = res.url;
+    }
+
+    // Handle HTML error response trap in chunked segment
+    const ct = (res.headers.get('Content-Type') || '').toLowerCase();
+    if (ct.includes('text/html') || ct.includes('application/xhtml+xml')) {
+      throw new Error(`Server returned HTML webpage instead of binary chunk for segment ${seg.index}`);
+    }
 
     // Handle RFC 7232 precondition failed (file changed on server)
     if (res.status === 412) {
@@ -406,7 +422,20 @@ export async function fetchSegmentOnce({
       if (contentLength > remainingExpected || currentOffset > 0) {
         throw new RangeNotSupportedError(`Server returned HTTP 200 full response instead of 206 for segment ${seg.index}`);
       }
-    } else if (!res.ok && res.status !== 206) {
+    } else if (res.status === 206) {
+      const contentRange = res.headers.get('Content-Range');
+      if (contentRange) {
+        const match = contentRange.match(/bytes\s+(\d+)-(\d+)\/(\d+|\*)/i);
+        if (match) {
+          const serverStart = parseInt(match[1], 10);
+          if (serverStart !== currentOffset) {
+            throw new RangeNotSupportedError(
+              `Content-Range start offset mismatch: expected ${currentOffset}, got ${serverStart}`
+            );
+          }
+        }
+      }
+    } else if (!res.ok) {
       throw new Error(`HTTP ${res.status} for segment ${seg.index}`);
     }
 
@@ -463,9 +492,22 @@ export async function fetchSegmentOnce({
       currentBatchBytes = 0;
     }
 
+    const expectedSegBytes = seg.end - seg.start + 1;
+    if (seg.received !== expectedSegBytes) {
+      throw new Error(
+        `Segment ${seg.index} byte mismatch: received ${seg.received} bytes, expected ${expectedSegBytes}`
+      );
+    }
+
     // Composite segment Blob stored directly in disk-backed IndexedDB
     const segBlob = new Blob(blobParts);
     blobParts.length = 0;
+
+    if (segBlob.size !== expectedSegBytes) {
+      throw new Error(
+        `Segment ${seg.index} blob size mismatch: blob size ${segBlob.size} !== expected ${expectedSegBytes}`
+      );
+    }
 
     await saveChunk(download.id, seg.index, segBlob);
   } finally {

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite build --watch",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json --noEmit",
     "bundle": "vite build",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -27,5 +27,8 @@
     "chrome-extension",
     "open-source"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "mux.js": "^6.3.0"
+  }
 }

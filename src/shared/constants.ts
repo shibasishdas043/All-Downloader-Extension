@@ -88,6 +88,13 @@ export const MSG = Object.freeze({
   APPLY_UPDATE:        'APPLY_UPDATE',
   GET_UPDATE_STATUS:   'GET_UPDATE_STATUS',
   UPDATE_AVAILABLE:    'UPDATE_AVAILABLE',
+
+  // HLS / DASH Stream Capture & Muxing
+  HLS_PLAYLIST_DETECTED:  'HLS_PLAYLIST_DETECTED',
+  HLS_DOWNLOAD_PROGRESS:  'HLS_DOWNLOAD_PROGRESS',
+  GET_TAB_MEDIA_STREAMS:  'GET_TAB_MEDIA_STREAMS',
+  OFFSCREEN_MUX_SEGMENTS: 'OFFSCREEN_MUX_SEGMENTS',
+  OFFSCREEN_MUX_DONE:     'OFFSCREEN_MUX_DONE',
 } as const);
 
 // ── Category Folder Names ─────────────────────────────────────
@@ -131,6 +138,13 @@ export const DEFAULT_SETTINGS = Object.freeze({
   maxHistoryItems:           500,
   hideChromeShelf:           true,  // suppress Chrome's native download shelf / bubble
   autoCheckUpdates:          true,  // check for extension updates periodically in background
+  enableRoutingRules:        false, // smart routing rules are opt-in; off by default
+  routingRules:              [] as import('./types.js').RoutingRule[], // user-defined routing rules
+  enableHoverGrab:           true,  // show floating download button on hovered media
+  enableSmartRouting:        true,  // semantic context auto-sorting on by default
+  smartRoutingStructure:     'contextual' as const, // dynamic hierarchy mode: 'contextual' | 'domain' | 'category' | 'date'
+  smartFilenameClean:        true,  // auto-normalize cryptic server filenames using page metadata
+  unblockRightClick:         true,  // universally re-enable mouse right-click, context menu, text selection on all sites
 });
 
 // ── UI Config ─────────────────────────────────────────────────

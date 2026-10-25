@@ -12,7 +12,8 @@ export const DEFAULT_RANGE_TIMEOUT_MS = 4_500;
 export async function probeUrl(
   url: string,
   signal: AbortSignal,
-  timeoutMs = DEFAULT_HEAD_TIMEOUT_MS
+  timeoutMs = DEFAULT_HEAD_TIMEOUT_MS,
+  referrer?: string
 ): Promise<ProbeMeta> {
   const releaseProbeSlot = await hostGovernor.acquireProbeSlot(url, signal);
 
@@ -26,11 +27,17 @@ export async function probeUrl(
 
     let fallbackHeadRes: Response | null = null;
 
+    const baseHeaders: Record<string, string> = {};
+    if (referrer) {
+      baseHeaders['Referer'] = referrer;
+    }
+
     // 1. First probe tier: HEAD request (lightweight metadata)
     try {
       const headRes = await fetch(url, {
         method: 'HEAD',
         signal: combined,
+        headers: baseHeaders,
         credentials: 'include',
         redirect: 'follow',
       });
@@ -60,7 +67,7 @@ export async function probeUrl(
         const getRes = await fetch(url, {
           method: 'GET',
           signal: getCombined,
-          headers: { Range: 'bytes=0-0' },
+          headers: { Range: 'bytes=0-0', ...baseHeaders },
           credentials: 'include',
           redirect: 'follow',
         });
@@ -89,6 +96,8 @@ export async function probeUrl(
       hashExpected: null,
       etag: null,
       lastModified: null,
+      resolvedUrl: null,
+      isHtmlTrap: false,
     };
   }
 
@@ -127,9 +136,11 @@ export async function probeUrl(
     acceptsRanges = false;
   }
 
-  const filename = parseFilename(res, url);
+  const resolvedUrl = res.url || url;
+  const filename = parseFilename(res, resolvedUrl);
   const rawContentType = res.headers.get('Content-Type') || '';
   const mimeType = rawContentType.split(';')[0].trim().toLowerCase() || null;
+  const isHtmlTrap = mimeType === 'text/html' || mimeType === 'application/xhtml+xml';
 
   // Cache & Resource Coherence Validators (RFC 7232)
   const etag = res.headers.get('ETag')?.trim() || null;
@@ -151,6 +162,8 @@ export async function probeUrl(
       hashExpected,
       etag,
       lastModified,
+      resolvedUrl,
+      isHtmlTrap,
     };
   } finally {
     releaseProbeSlot();

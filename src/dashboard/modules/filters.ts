@@ -35,7 +35,12 @@ export function getFilteredDownloads(): any[] {
     });
   }
 
-  // 3. Multi-Token Tokenized Search Algorithm
+  // 2.5 Smart Shelf Filter (Contextual Intent: Notes, Results, Statements, Invoices, etc.)
+  if (state.activeSmartShelf && state.activeSmartShelf !== 'all') {
+    list = list.filter(d => (d.smartShelfKey === state.activeSmartShelf) || (d.smartBadge?.shelfKey === state.activeSmartShelf));
+  }
+
+  // 3. Multi-Token Tokenized Search Algorithm (including smart tags and destination folders)
   if (state.searchQuery) {
     const tokens = state.searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
     list = list.filter(d => {
@@ -43,7 +48,8 @@ export function getFilteredDownloads(): any[] {
       const url = (d.url || '').toLowerCase();
       const ext = (getExtension(d.filename || '')).toLowerCase();
       const cat = (d.category || detectCategory(d.filename || '', (d as any).mimeType)).toLowerCase();
-      const target = `${name} ${url} ${ext} ${cat}`;
+      const smart = `${d.smartCategory || ''} ${d.smartFolder || ''}`.toLowerCase();
+      const target = `${name} ${url} ${ext} ${cat} ${smart}`;
       return tokens.every(t => target.includes(t));
     });
   }
@@ -96,6 +102,17 @@ export function bindFilters(onFilterChange: () => void): void {
       state.activeCat = (btn as HTMLElement).dataset.cat || 'all';
       onFilterChange();
     });
+  });
+
+  // Smart Shelves Filter Chips Delegation (Dynamic Self-Organizing)
+  document.getElementById('dashboard-smart-shelves')?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.smart-shelf-chip') as HTMLElement | null;
+    if (!btn) return;
+    const shelf = btn.dataset.shelf || 'all';
+    document.querySelectorAll('#dashboard-smart-shelves .smart-shelf-chip').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    state.activeSmartShelf = shelf;
+    onFilterChange();
   });
 
   // Sortable headers

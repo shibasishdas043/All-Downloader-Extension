@@ -9,7 +9,7 @@ import {
 import { getVisualChunks } from '../../shared/chunk-helpers.js';
 import type { DownloadState } from '../../shared/types.js';
 import { $list, $empty, $statusActive, $statusSpeed, $statusQueue, $tmpl } from './dom.js';
-import { downloads, getAllDownloads } from './state.js';
+import { downloads, getAllDownloads, activeShelfFilter } from './state.js';
 
 export const expandedPopupIds = new Set<string>();
 
@@ -25,7 +25,48 @@ export function togglePopupChunkDrawer(id: string): void {
   }
 }
 
+export function renderDynamicPopupShelves(): void {
+  const container = document.getElementById('popup-smart-shelves');
+  if (!container) return;
+
+  const all = getAllDownloads();
+  const shelfCounts = new Map<string, { label: string; icon: string; count: number }>();
+
+  for (const dl of all) {
+    if (dl.smartBadge?.shelfKey) {
+      const key = dl.smartBadge.shelfKey;
+      const existing = shelfCounts.get(key);
+      if (existing) {
+        existing.count++;
+      } else {
+        shelfCounts.set(key, {
+          label: dl.smartBadge.label,
+          icon: dl.smartBadge.icon,
+          count: 1,
+        });
+      }
+    }
+  }
+
+  if (shelfCounts.size === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'flex';
+  let html = `<button type="button" class="shelf-pill ${activeShelfFilter === 'all' ? 'active' : ''}" data-shelf="all">All (${all.length})</button>`;
+
+  for (const [key, data] of shelfCounts.entries()) {
+    const isActive = activeShelfFilter === key ? 'active' : '';
+    html += `<button type="button" class="shelf-pill ${isActive}" data-shelf="${key}">${data.icon} ${data.label} (${data.count})</button>`;
+  }
+
+  container.innerHTML = html;
+}
+
 export function renderAll(): void {
+  renderDynamicPopupShelves();
+
   const ACTIVE_STATES: DownloadState[] = [
     DOWNLOAD_STATE.QUEUED,
     DOWNLOAD_STATE.CONNECTING,
@@ -37,7 +78,15 @@ export function renderAll(): void {
 
   const isActive = (dl: any) => ACTIVE_STATES.includes(dl.status || dl.state);
 
-  const sorted = getAllDownloads()
+  let rawList = getAllDownloads();
+  if (activeShelfFilter !== 'all') {
+    rawList = rawList.filter((d: any) =>
+      (d.smartShelfKey === activeShelfFilter) ||
+      (d.smartBadge?.shelfKey === activeShelfFilter)
+    );
+  }
+
+  const sorted = rawList
     .sort((a: any, b: any) => {
       const aActive = isActive(a);
       const bActive = isActive(b);
@@ -96,12 +145,34 @@ export function updateItem(id: string): void {
 export function populateItem(el: HTMLElement, dl: any): void {
   const ext = getExtension(dl.filename);
   const badgeEl = el.querySelector('.dl-ext-badge') as HTMLElement;
-  if (ext) {
+  if (dl.isHlsStream) {
+    badgeEl.textContent = 'HLS';
+    badgeEl.title = 'HLS Stream Capture';
+  } else if (ext) {
     badgeEl.textContent = ext.slice(0, 4).toUpperCase();
   } else {
     badgeEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
   }
   (el.querySelector('.dl-name') as HTMLElement).textContent = truncateName(dl.filename, 30);
+
+  const smartRow = el.querySelector('.dl-smart-row') as HTMLElement | null;
+  if (smartRow) {
+    if (dl.smartBadge) {
+      smartRow.innerHTML = `
+        <span class="popup-smart-pill" title="Classified: ${dl.smartBadge.label}">
+          <span class="pill-icon">${dl.smartBadge.icon}</span>
+          <span class="pill-text">${dl.smartBadge.label}</span>
+        </span>
+        <button type="button" class="popup-folder-jump-btn" title="Open Destination Folder: ${dl.smartBadge.folder}">
+          📁 ${dl.smartBadge.folder}
+        </button>
+      `;
+      smartRow.style.display = 'flex';
+    } else {
+      smartRow.innerHTML = '';
+      smartRow.style.display = 'none';
+    }
+  }
 
   const total = dl.total || dl.filesize || 0;
   const received = dl.received || dl.receivedBytes || 0;
@@ -132,10 +203,15 @@ export function populateItem(el: HTMLElement, dl: any): void {
       : 'Failed';
     metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text error">${failLabel}</span>`;
   } else {
-    // Active states (downloading, paused, queued, connecting, merging, verifying):
-    // only show size — status is already shown in the speed row below the progress bar
-    const sizeStr = total > 0 ? `${formatBytes(received)} / ${formatBytes(total)}` : formatBytes(received);
-    metaHtml = `<span>${sizeStr}</span>`;
+    // Active states (downloading, paused, queued, connecting, merging, verifying)
+    if (dl.isHlsStream && dl.hlsSegmentCount) {
+      const segStr = `Seg ${dl.hlsSegmentsCompleted || 0}/${dl.hlsSegmentCount}`;
+      const sizeStr = received > 0 ? formatBytes(received) : '—';
+      metaHtml = `<span>${sizeStr}</span><span class="dl-meta-dot">·</span><span class="dl-status-text">${segStr}</span>`;
+    } else {
+      const sizeStr = total > 0 ? `${formatBytes(received)} / ${formatBytes(total)}` : formatBytes(received);
+      metaHtml = `<span>${sizeStr}</span>`;
+    }
   }
 
   (el.querySelector('.dl-meta') as HTMLElement).innerHTML = metaHtml;

@@ -23,3 +23,10 @@ export function removeDownload(id: string): void {
 export function getAllDownloads(): any[] {
   return Object.values(downloads);
 }
+
+export let activeShelfFilter: string = 'all';
+
+export function setActiveShelfFilter(shelf: string): void {
+  activeShelfFilter = shelf;
+}
+

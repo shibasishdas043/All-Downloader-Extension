@@ -42,7 +42,7 @@ export function bindModal(): void {
         for (const item of items) {
           await sendMsg({
             type: MSG.START_DOWNLOAD,
-            payload: { url: item.url, filename: item.filename }
+            payload: { url: item.url, filename: item.filename, referrer: item.referrer }
           });
         }
       }

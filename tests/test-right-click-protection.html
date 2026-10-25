@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>All Downloader — Right-Click & Protection Unblocker Test Bench</title>
+  <style>
+    :root {
+      --bg: #0b1120;
+      --card-bg: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --primary: #38bdf8;
+      --accent: #10b981;
+      --danger: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 40px 20px;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 30px;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    p.subtitle {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      position: relative;
+    }
+
+    .card h2 {
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card p {
+      font-size: 14px;
+      color: var(--muted);
+    }
+
+    .test-box {
+      background: #0f172a;
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+      cursor: context-menu;
+      user-select: none; /* Intentionally blocked via CSS */
+      -webkit-user-select: none;
+    }
+
+    .test-box.clickable {
+      cursor: pointer;
+    }
+
+    .image-shield-wrap {
+      position: relative;
+      width: 100%;
+      height: 200px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0f172a;
+    }
+
+    .image-shield-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Hostile transparent overlay shield */
+    .hostile-shield {
+      position: absolute;
+      inset: 0;
+      background: transparent;
+      z-index: 10;
+      cursor: not-allowed;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent);
+      align-self: flex-start;
+    }
+
+    .log-box {
+      margin-top: 25px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      font-family: monospace;
+      font-size: 13px;
+      max-height: 150px;
+      overflow-y: auto;
+      color: #cbd5e1;
+    }
+  </style>
+</head>
+<body oncontextmenu="return cancelInline(event);" onselectstart="return cancelInline(event);" oncopy="return cancelInline(event);">
+
+  <div class="container">
+    <header>
+      <h1>Right-Click & Copy Protection Test Bench</h1>
+      <p class="subtitle">This page contains aggressive scripts attempting to block right-clicks, copy, and text selection.</p>
+    </header>
+
+    <div class="grid">
+      <!-- Test 1: Event preventDefault & return false -->
+      <div class="card">
+        <h2>1. JavaScript contextmenu Cancellation</h2>
+        <p>This box has a listener calling <code>e.preventDefault()</code> and <code>e.stopPropagation()</code>.</p>
+        <div class="test-box" id="test-box-js">
+          <strong>Right-Click Inside This Box</strong>
+          <p style="font-size: 12px; margin-top: 4px;">Without extension: context menu is blocked.<br>With extension: native context menu opens immediately!</p>
+        </div>
+        <span class="status-badge">Test Target: Event.prototype.preventDefault</span>
+      </div>
+
+      <!-- Test 2: Hostile Alert on Right Click -->
+      <div class="card">
+        <h2>2. Intrusive Modal Alert Popup</h2>
+        <p>This box attempts to trigger an annoying <code>alert("Right Click Disabled!")</code> dialog on right click.</p>
+        <div class="test-box" id="test-box-alert">
+          <strong>Right-Click to Trigger Alert</strong>
+          <p style="font-size: 12px; margin-top: 4px;">Without extension: popup blocks screen.<br>With extension: popup alert is silenced!</p>
+        </div>
+        <span class="status-badge">Test Target: window.alert suppression</span>
+      </div>
+
+      <!-- Test 3: Transparent Image Click Shield -->
+      <div class="card">
+        <h2>3. Transparent Overlay Shield (Image Guard)</h2>
+        <p>A transparent <code>&lt;div&gt;</code> is placed on top of this image to prevent "Save image as...".</p>
+        <div class="image-shield-wrap" id="shield-container">
+          <img id="test-img" src="https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=800&auto=format&fit=crop&q=80" alt="Test Artwork" />
+          <div class="hostile-shield" title="Hostile transparent shield"></div>
+        </div>
+        <p style="font-size: 12px;">With extension: click pierces shield and gives "Save image as..." for the real image!</p>
+        <span class="status-badge">Test Target: Transparent Shield Piercing</span>
+      </div>
+
+      <!-- Test 4: CSS user-select: none & Copy Blocking -->
+      <div class="card">
+        <h2>4. Text Selection & Copy Blocker</h2>
+        <p>This paragraph has <code>user-select: none !important;</code> and copy cancellation.</p>
+        <div class="test-box" id="test-box-select" style="user-select: none !important; -webkit-user-select: none !important;">
+          <p id="protected-text">Try highlighting and copying this confidential text snippet (Ctrl+C or Right-Click &gt; Copy).</p>
+        </div>
+        <span class="status-badge">Test Target: CSS Override & Clipboard Unblock</span>
+      </div>
+    </div>
+
+    <div class="log-box" id="event-log">
+      <div>[System Log]: Ready. Right-click any card above to test.</div>
+    </div>
+  </div>
+
+  <script>
+    const logEl = document.getElementById('event-log');
+
+    function log(msg) {
+      const line = document.createElement('div');
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.appendChild(line);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Hostile inline handler cancellation
+    function cancelInline(e) {
+      log(`Hostile Inline: Blocked ${e.type} via on${e.type}="return false"`);
+      return false;
+    }
+
+    // Hostile listener on Box 1
+    const boxJs = document.getElementById('test-box-js');
+    boxJs.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      log('Hostile Script: Called e.preventDefault() & e.stopPropagation() on Box 1');
+      return false;
+    });
+
+    // Hostile listener on Box 2 (Alert)
+    const boxAlert = document.getElementById('test-box-alert');
+    boxAlert.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      log('Hostile Script: Attempting to display alert dialog...');
+      alert('⚠️ Website Notice: Right-click is protected and disabled on this site!');
+    });
+
+    // Hostile copy and select listener
+    const boxSelect = document.getElementById('test-box-select');
+    boxSelect.addEventListener('selectstart', (e) => {
+      e.preventDefault();
+      log('Hostile Script: Blocked selectstart on Box 4');
+    });
+    boxSelect.addEventListener('copy', (e) => {
+      e.preventDefault();
+      log('Hostile Script: Blocked copy on Box 4');
+    });
+
+    // Global right-click attempt logger
+    window.addEventListener('contextmenu', (e) => {
+      log(`Context Menu event fired (target: <${e.target.tagName.toLowerCase()}>, defaultPrevented: ${e.defaultPrevented})`);
+    });
+  </script>
+</body>
+</html>
