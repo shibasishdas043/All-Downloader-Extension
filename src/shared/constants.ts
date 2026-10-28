@@ -70,8 +70,9 @@ export const MSG = Object.freeze({
   START_QUEUED_NOW:    'START_QUEUED_NOW',
   CLEAR_QUEUE:         'CLEAR_QUEUE',
   SHOW_IN_FOLDER:      'SHOW_IN_FOLDER',
+  OPEN_FILE:           'OPEN_FILE',
   DIRECT_SAVE_COMPLETED: 'DIRECT_SAVE_COMPLETED',
-  SNIFF_PAGE:          'SNIFF_PAGE',
+  CLEAN_CHUNK_CACHE:   'CLEAN_CHUNK_CACHE',
 
   // Offscreen document messaging (Zero-copy Blob URL generation)
   OFFSCREEN_CREATE_BLOB_URL: 'OFFSCREEN_CREATE_BLOB_URL',
@@ -88,13 +89,6 @@ export const MSG = Object.freeze({
   APPLY_UPDATE:        'APPLY_UPDATE',
   GET_UPDATE_STATUS:   'GET_UPDATE_STATUS',
   UPDATE_AVAILABLE:    'UPDATE_AVAILABLE',
-
-  // HLS / DASH Stream Capture & Muxing
-  HLS_PLAYLIST_DETECTED:  'HLS_PLAYLIST_DETECTED',
-  HLS_DOWNLOAD_PROGRESS:  'HLS_DOWNLOAD_PROGRESS',
-  GET_TAB_MEDIA_STREAMS:  'GET_TAB_MEDIA_STREAMS',
-  OFFSCREEN_MUX_SEGMENTS: 'OFFSCREEN_MUX_SEGMENTS',
-  OFFSCREEN_MUX_DONE:     'OFFSCREEN_MUX_DONE',
 } as const);
 
 // ── Category Folder Names ─────────────────────────────────────
@@ -140,7 +134,6 @@ export const DEFAULT_SETTINGS = Object.freeze({
   autoCheckUpdates:          true,  // check for extension updates periodically in background
   enableRoutingRules:        false, // smart routing rules are opt-in; off by default
   routingRules:              [] as import('./types.js').RoutingRule[], // user-defined routing rules
-  enableHoverGrab:           true,  // show floating download button on hovered media
   enableSmartRouting:        true,  // semantic context auto-sorting on by default
   smartRoutingStructure:     'contextual' as const, // dynamic hierarchy mode: 'contextual' | 'domain' | 'category' | 'date'
   smartFilenameClean:        true,  // auto-normalize cryptic server filenames using page metadata
@@ -153,4 +146,8 @@ export const UI = Object.freeze({
   PROGRESS_INTERVAL:   500,  // ms between progress broadcasts
   SPEED_SAMPLE_WINDOW: 3000, // ms window for speed average
 } as const);
+
+/** Retention window (48 hours) for chunks preserved on cancelled saves before automatic eviction */
+export const PRESERVED_CHUNKS_TTL_MS = 48 * 60 * 60 * 1000;
+
 

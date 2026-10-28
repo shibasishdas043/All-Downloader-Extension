@@ -4,15 +4,13 @@
 import { MSG, DOWNLOAD_STATE } from '../../shared/constants.js';
 import {
   loadDownloads, getDownload, deleteDownload,
-  loadSettings, saveSettings, clearHistory
+  loadSettings, saveSettings, clearHistory, pruneOrphanChunks
 } from '../storage.js';
 import { pauseDownload, cancelDownload } from '../download-engine.js';
 import type { DownloadState, ExtensionSettings } from '../../shared/types.js';
 import type { DownloadCoordinator } from './download-coordinator.js';
 import { openDashboard, broadcastMessage, updateBadge } from './badge-manager.js';
-import { scrapePageMediaAndLinks, parseHtmlMediaAndLinks } from './page-sniffer.js';
 import { updateManager } from './update-manager.js';
-import { mediaStreamRegistry } from './media-stream-registry.js';
 
 export async function handleMessage(
   msg: any,
@@ -106,7 +104,6 @@ export async function handleMessage(
     }
 
     case MSG.CANCEL_DOWNLOAD: {
-      coordinator.hlsCoordinator?.cancel(msg.id);
       if (coordinator.isStreamDownload(msg.id)) {
         await coordinator.cancelStreamDownload(msg.id);
         return { ok: true };
@@ -117,6 +114,8 @@ export async function handleMessage(
         speed: 0,
         eta: null,
         autoReconnecting: false,
+        isReadyToSave: false,
+        preservedAt: null,
       } as any);
       broadcastMessage({ type: MSG.DOWNLOAD_CANCELLED, id: msg.id });
       try {
@@ -129,59 +128,11 @@ export async function handleMessage(
       return { ok: true };
     }
 
-    case MSG.HLS_PLAYLIST_DETECTED: {
-      const { playlistUrl, pageUrl, pageTitle, origin, tabId, autoDownload } = msg.payload || {};
-      if (!playlistUrl) return { ok: false };
-
-      const cleanUrl = playlistUrl.split('?')[0].toLowerCase();
-      const isM3U8 = cleanUrl.endsWith('.m3u8') || playlistUrl.toLowerCase().includes('.m3u8');
-      const isMPD = cleanUrl.endsWith('.mpd') || playlistUrl.toLowerCase().includes('.mpd');
-      const filename = coordinator.deriveFilenameFromStream(playlistUrl, pageTitle);
-
-      // Register in tab media registry
-      let effectiveTabId = tabId || sender?.tab?.id;
-      if (!effectiveTabId && typeof chrome !== 'undefined' && chrome.tabs) {
-        const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        effectiveTabId = activeTabs[0]?.id;
-      }
-      if (effectiveTabId) {
-        mediaStreamRegistry.registerMedia(effectiveTabId, {
-          url: playlistUrl,
-          title: pageTitle || filename,
-          filename,
-          type: 'video',
-          ext: 'mp4',
-          origin: origin || 'stream-sniffer',
-          timestamp: Date.now(),
-          isStreamManifest: isM3U8 || isMPD,
-          resolution: 'Adaptive HD',
-        });
-      }
-
-      if (autoDownload) {
-        const existing = await coordinator.findDownloadByUrl(playlistUrl);
-        if (existing) return { ok: true, download: existing };
-
-        const dl = await coordinator.addStreamDownload({
-          url: playlistUrl,
-          filename,
-          referrer: pageUrl || sender?.tab?.url,
-        });
-        return { ok: true, download: dl };
-      }
-
-      return { ok: true, registered: true };
+    case MSG.CLEAN_CHUNK_CACHE: {
+      const res = await pruneOrphanChunks();
+      return { ok: true, cleanedCount: res.cleanedCount, freedDownloadIds: res.freedDownloadIds };
     }
 
-    case MSG.GET_TAB_MEDIA_STREAMS: {
-      let tabId = msg.tabId || msg.payload?.tabId || sender?.tab?.id;
-      if (!tabId && typeof chrome !== 'undefined' && chrome.tabs) {
-        const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
-        tabId = active?.id;
-      }
-      const streams = tabId ? mediaStreamRegistry.getMediaForTab(tabId) : [];
-      return { ok: true, items: streams };
-    }
 
     case MSG.DIRECT_SAVE_COMPLETED: {
       const updated = await coordinator.handleDirectSaveCompleted(msg.id, msg.size, msg.filename);
@@ -284,6 +235,11 @@ export async function handleMessage(
       return { ok };
     }
 
+    case MSG.OPEN_FILE: {
+      const ok = await coordinator.openFile(msg.id);
+      return { ok };
+    }
+
     case MSG.USER_RIGHT_CLICKED: {
       coordinator.rightClickDetector.record(
         msg.payload?.urls || [],
@@ -297,134 +253,7 @@ export async function handleMessage(
       return { ok: true };
     }
 
-    case MSG.SNIFF_PAGE: {
-      const allTabs = await chrome.tabs.query({});
-      const activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
-      const currentTab = activeTabs[0];
 
-      // Filter valid web tabs (exclude internal chrome pages and extension dashboard)
-      const validWebTabs = allTabs.filter(t =>
-        t.id &&
-        t.url &&
-        !t.url.startsWith('chrome-extension://') &&
-        !t.url.startsWith('chrome://') &&
-        !t.url.startsWith('edge://') &&
-        !t.url.startsWith('about:') &&
-        !t.url.startsWith('devtools://')
-      );
-
-      const availableTabs = validWebTabs.map(t => ({
-        id: t.id!,
-        title: t.title || '',
-        url: t.url || ''
-      }));
-
-      let targetUrl = (msg.payload?.url || '').trim();
-      let targetTab: chrome.tabs.Tab | undefined;
-
-      if (targetUrl) {
-        if (!/^https?:\/\//i.test(targetUrl)) {
-          targetUrl = 'https://' + targetUrl;
-        }
-        // Check if an open tab matches targetUrl
-        targetTab = validWebTabs.find(t => 
-          t.url && (
-            t.url.toLowerCase() === targetUrl.toLowerCase() ||
-            t.url.toLowerCase().startsWith(targetUrl.toLowerCase()) ||
-            targetUrl.toLowerCase().startsWith(t.url.toLowerCase())
-          )
-        );
-      } else {
-        // If current active tab is a valid web page (e.g. scanning from popup on a website):
-        if (currentTab && currentTab.url && !currentTab.url.startsWith('chrome-extension://') && !currentTab.url.startsWith('chrome://') && !currentTab.url.startsWith('edge://') && !currentTab.url.startsWith('about:')) {
-          targetTab = currentTab;
-          targetUrl = currentTab.url;
-        } else if (validWebTabs.length > 0) {
-          // Dashboard scenario! Active tab is dashboard.html, so pick the most recent open web tab!
-          targetTab = validWebTabs[0];
-          targetUrl = validWebTabs[0].url || '';
-        }
-      }
-
-      // 1. If target is an open browser tab, use executeScript for full live DOM + JS scraping
-      if (targetTab && targetTab.id) {
-        try {
-          const results = await chrome.scripting.executeScript({
-            target: { tabId: targetTab.id },
-            func: scrapePageMediaAndLinks,
-          });
-          const items: any[] = results?.[0]?.result || [];
-
-          // Merge live network-captured streams from media registry
-          const liveMedia = mediaStreamRegistry.getMediaForTab(targetTab.id);
-          const seenUrls = new Set(items.map((i: any) => i.url));
-          for (const m of liveMedia) {
-            if (!seenUrls.has(m.url)) {
-              items.unshift(m);
-              seenUrls.add(m.url);
-            }
-          }
-
-          return {
-            ok: true,
-            items,
-            pageTitle: targetTab.title || targetUrl,
-            pageUrl: targetTab.url || targetUrl,
-            availableTabs
-          };
-        } catch {
-          // If executeScript fails (e.g. restricted permissions), fall back to fetch
-        }
-      }
-
-      // 2. If target is a custom URL or tab execution failed, fetch HTML and parse resources
-      if (targetUrl && /^https?:\/\//i.test(targetUrl)) {
-        try {
-          const res = await fetch(targetUrl, {
-            headers: {
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-            }
-          });
-          if (!res.ok) {
-            return {
-              ok: false,
-              error: `HTTP ${res.status}: Failed to load ${targetUrl}`,
-              items: [],
-              pageUrl: targetUrl,
-              availableTabs
-            };
-          }
-          const html = await res.text();
-          const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-          const pageTitle = titleMatch ? titleMatch[1].trim() : targetUrl;
-          const items = parseHtmlMediaAndLinks(html, targetUrl);
-          return {
-            ok: true,
-            items,
-            pageTitle,
-            pageUrl: targetUrl,
-            availableTabs
-          };
-        } catch (err: any) {
-          return {
-            ok: false,
-            error: err?.message || `Failed to fetch page at ${targetUrl}`,
-            items: [],
-            pageUrl: targetUrl,
-            availableTabs
-          };
-        }
-      }
-
-      // 3. No target URL provided and no active web tabs found
-      return {
-        ok: false,
-        error: 'No active webpage found. Please enter a page URL above to scan.',
-        items: [],
-        pageUrl: '',
-        availableTabs
-      };
-    }
 
     default:
       return { ok: false, error: `Unknown message type: ${msg?.type}` };

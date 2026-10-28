@@ -238,4 +238,38 @@ describe('Download Actions & Button Synchronization', () => {
     expect(inQueue).toBe(false);
     expect(chunksCleaned).toBe(true);
   });
+
+  describe('Smart Badge & Folder Jump De-Duplication', () => {
+    function renderSmartRowTest(badge: { label: string; folder: string; icon?: string } | undefined) {
+      if (!badge) return '';
+      const label = (badge.label || '').trim();
+      const folder = (badge.folder || '').trim();
+      const icon = badge.icon || '📁';
+      const isDuplicate = !folder || !label ||
+        label.toLowerCase() === folder.toLowerCase() ||
+        ((icon === '📁' || icon === '📂') && folder.toLowerCase().endsWith(label.toLowerCase()));
+
+      if (isDuplicate) {
+        return `<button class="folder">${folder || label}</button>`;
+      }
+      return `<span class="pill">${label}</span><button class="folder">${folder}</button>`;
+    }
+
+    test('collapses duplicate label and folder into a single badge without duplication', () => {
+      const markup = renderSmartRowTest({ label: 'Images', folder: 'Images', icon: '📁' });
+      expect(markup).toBe('<button class="folder">Images</button>');
+      expect(markup).not.toContain('<span class="pill">');
+    });
+
+    test('collapses subfolder ending with label into single folder button when icon is generic folder', () => {
+      const markup = renderSmartRowTest({ label: 'Images', folder: 'All-Downloader/Images', icon: '📁' });
+      expect(markup).toBe('<button class="folder">All-Downloader/Images</button>');
+    });
+
+    test('preserves distinct classification and destination folder when semantic intent differs', () => {
+      const markup = renderSmartRowTest({ label: 'Course Notes', folder: 'Academics/MIT', icon: '🎓' });
+      expect(markup).toContain('<span class="pill">Course Notes</span>');
+      expect(markup).toContain('<button class="folder">Academics/MIT</button>');
+    });
+  });
 });

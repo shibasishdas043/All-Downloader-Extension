@@ -172,29 +172,27 @@ export async function streamChunksToDisk(
     try {
       await writable.close();
     } catch (closeErr: any) {
-      console.warn('[ADL DirectSaver] writable.close() notice:', closeErr);
-      // On Windows with multi-gigabyte ISOs, Chromium's SafeMoveHelper can hit a temporary
-      // sharing violation while renaming .crswap to the target file if Windows Defender is scanning.
-      // However, all bytes are 100% written on disk!
-      if (
-        closeErr?.message?.includes('state cached in an interface object') ||
-        closeErr?.name === 'InvalidStateError' ||
-        closeErr?.message?.includes('locked')
-      ) {
-        console.log('[ADL DirectSaver] All bytes safely committed to disk despite swap rename delay.');
-      } else {
-        throw closeErr;
-      }
+      console.error('[ADL DirectSaver] writable.close() failed:', closeErr);
+      throw closeErr;
     }
 
     let verifiedSize = bytesWritten;
     if (typeof fileHandle.getFile === 'function') {
       try {
         const diskFile = await fileHandle.getFile();
-        if (diskFile && diskFile.size > 0) {
-          verifiedSize = diskFile.size;
+        if (diskFile) {
+          if (diskFile.size > 0) {
+            verifiedSize = diskFile.size;
+          } else if (diskFile.size === 0 && bytesWritten > 0) {
+            throw new Error(
+              `File verification failed: Target file "${finalFilename}" is 0 bytes on disk (expected ${bytesWritten} bytes). The destination file may be locked by Windows Explorer or antivirus.`
+            );
+          }
         }
       } catch (verifyErr) {
+        if (verifyErr instanceof Error && verifyErr.message.includes('File verification failed')) {
+          throw verifyErr;
+        }
         console.warn('[ADL DirectSaver] Non-fatal getFile() check:', verifyErr);
       }
     }

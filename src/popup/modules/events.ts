@@ -6,12 +6,11 @@ import { $list, $empty, $modalAdd, $urlInput, showModal, hideModal } from './dom
 import { downloads, setDownload, getAllDownloads, setActiveShelfFilter } from './state.js';
 import {
   pauseDl, resumeDl, cancelDl, deleteDl,
-  showInFolder, retryDl, pauseAll,
+  showInFolder, openFile, retryDl, pauseAll,
   startManualDownload, openDashboard, saveDlToDisk
 } from './actions.js';
 import { renderAll, updateItem, updateStatusBar, togglePopupChunkDrawer } from './renderer.js';
 import { sendMsg } from './api.js';
-import { SnifferController } from '../../shared/sniffer-controller.js';
 
 export function bindEvents(): void {
   // Smart Shelves Filter Pills (Zero-Click Access)
@@ -28,13 +27,14 @@ export function bindEvents(): void {
   $list.addEventListener('click', (e: MouseEvent) => {
     const target = e.target as HTMLElement | null;
 
-    // 0. Direct Smart Folder Jump button click (Zero-click OS file explorer open)
-    const folderJump = target?.closest('.popup-folder-jump-btn');
-    if (folderJump) {
+    // 0. Direct File Open button / badge click (Directly opens downloaded file)
+    const fileOpen = target?.closest('.popup-folder-jump-btn, .popup-file-open-btn, .popup-smart-pill') as HTMLElement | null;
+    if (fileOpen) {
       e.stopPropagation();
-      const item = folderJump.closest('.dl-item') as HTMLElement | null;
-      if (item?.dataset.id) {
-        showInFolder(item.dataset.id);
+      e.preventDefault();
+      const id = fileOpen.dataset.id || (fileOpen.closest('.dl-item') as HTMLElement | null)?.dataset.id;
+      if (id) {
+        openFile(id);
       }
       return;
     }
@@ -62,7 +62,18 @@ export function bindEvents(): void {
       return;
     }
 
-    // 3. Item click: toggle parallel chunks drawer!
+    // 3. File name or thumbnail click on completed download: directly open file!
+    const nameOrThumb = target?.closest('.dl-name, .dl-thumb');
+    if (nameOrThumb) {
+      const item = nameOrThumb.closest('.dl-item') as HTMLElement | null;
+      const id = item?.dataset.id;
+      if (id && downloads[id] && (downloads[id].status === DOWNLOAD_STATE.COMPLETED || downloads[id].state === 'complete')) {
+        openFile(id);
+        return;
+      }
+    }
+
+    // 4. Item click: toggle parallel chunks drawer!
     const item = target?.closest('.dl-item') as HTMLElement | null;
     if (item && item.dataset.id) {
       togglePopupChunkDrawer(item.dataset.id);
@@ -95,45 +106,6 @@ export function bindEvents(): void {
   document.getElementById('modal-close')?.addEventListener('click', hideModal);
   document.getElementById('btn-start-download')?.addEventListener('click', startManualDownload);
   document.getElementById('btn-pause-all')?.addEventListener('click', pauseAll);
-
-  // Page Sniffer Modal
-  const snifferModal = document.getElementById('modal-sniffer');
-  if (snifferModal) {
-    const snifferController = new SnifferController(
-      {
-        modal: snifferModal,
-        pageTitle: document.getElementById('sniffer-page-title')!,
-        loading: document.getElementById('sniffer-loading')!,
-        empty: document.getElementById('sniffer-empty')!,
-        list: document.getElementById('sniffer-list')!,
-        filterInput: document.getElementById('sniffer-filter') as HTMLInputElement,
-        selectAllCheckbox: document.getElementById('sniffer-select-all') as HTMLInputElement,
-        selectedCountLabel: document.getElementById('sniffer-sel-count')!,
-        downloadBtn: document.getElementById('btn-sniffer-download') as HTMLButtonElement,
-        closeBtn: document.getElementById('sniffer-close')!,
-        cntAll: document.getElementById('sniff-cnt-all')!,
-        cntImage: document.getElementById('sniff-cnt-image')!,
-        cntVideo: document.getElementById('sniff-cnt-video')!,
-        cntAudio: document.getElementById('sniff-cnt-audio')!,
-        cntDocument: document.getElementById('sniff-cnt-document')!,
-        targetUrlInput: (document.getElementById('sniffer-target-url') as HTMLInputElement) || undefined,
-        scanBtn: document.getElementById('sniffer-btn-scan') || undefined,
-        tabsDatalist: (document.getElementById('sniffer-open-tabs') as HTMLDataListElement) || undefined,
-      },
-      async (items) => {
-        for (const item of items) {
-          await sendMsg({
-            type: MSG.START_DOWNLOAD,
-            payload: { url: item.url, filename: item.filename, referrer: item.referrer }
-          });
-        }
-      }
-    );
-
-    document.getElementById('btn-sniffer')?.addEventListener('click', () => {
-      snifferController.open();
-    });
-  }
 
   $modalAdd?.addEventListener('click', (e: MouseEvent) => {
     if (e.target === $modalAdd) hideModal();
@@ -270,14 +242,14 @@ export function handleSWMessage(msg: any): void {
       for (const id of Object.keys(downloads)) {
         const dl = downloads[id];
         const st = dl.status || dl.state;
-        if (![
+        const isActive = [
           DOWNLOAD_STATE.DOWNLOADING,
           DOWNLOAD_STATE.QUEUED,
           DOWNLOAD_STATE.CONNECTING,
-          DOWNLOAD_STATE.PAUSED,
           DOWNLOAD_STATE.MERGING,
           DOWNLOAD_STATE.VERIFYING
-        ].includes(st as any)) {
+        ].includes(st as any) && !dl.isReadyToSave;
+        if (!isActive) {
           delete downloads[id];
           $list.querySelector(`.dl-item[data-id="${id}"]`)?.remove();
         }

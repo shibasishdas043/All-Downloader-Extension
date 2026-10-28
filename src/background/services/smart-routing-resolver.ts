@@ -37,9 +37,15 @@ export interface ResolveOptions {
 /**
  * Resolves the final destination and filename for a download:
  *  1. Checks custom user-defined routing rules first (highest priority).
- *  2. If no custom rule matches and smart routing is active, applies dynamic semantic classification
- *     (Healthcare, Legal, Engineering, Finance, Academics, Automotive, Creative, Work, Govt, Dev).
- *  3. Falls back to global default path and category folder.
+ *  2. If no custom rule matches and smart routing is active, applies the selected hierarchy strategy:
+ *     - 'contextual': Deep semantic classification (Healthcare, Legal, Engineering, Finance, Academics, etc.).
+ *                     Falls back cleanly to standard category folder for generic files if category sorting is enabled.
+ *     - 'category': Standard category subfolders (Videos/, Documents/, Images/, etc.).
+ *     - 'domain': Domain & year hierarchy ({domain}/{year}).
+ *     - 'date': Chronological timeline ({year}/{month}).
+ *     - 'flat': Direct to base download subfolder without subdirectories.
+ *  3. Seamlessly prefixes the user's Base Download Subfolder (defaultSavePath) across all modes.
+ *  4. Global fallback if smart routing is disabled: Base Subfolder + optional category folder.
  */
 export function resolveDownloadRoute(options: ResolveOptions): SmartRoutingResolution {
   const {
@@ -68,10 +74,14 @@ export function resolveDownloadRoute(options: ResolveOptions): SmartRoutingResol
 
     if (ruleResult.matchedRule) {
       const resolvedFilename = ruleResult.filename || filename;
+      const targetRuleFolder = ruleResult.savePath !== undefined
+        ? ruleResult.savePath
+        : (settings.organizeByCategoryFolders ? categoryFolder : undefined);
+
       const resolvedPath = buildSavePath(
-        ruleResult.savePath || settings.defaultSavePath,
+        settings.defaultSavePath,
         resolvedFilename,
-        ruleResult.savePath ? undefined : categoryFolder
+        targetRuleFolder
       );
 
       return {
@@ -82,9 +92,11 @@ export function resolveDownloadRoute(options: ResolveOptions): SmartRoutingResol
     }
   }
 
-  // ── Step 2: Open-Ended Dynamic Semantic Intent Classifier ──
+  // ── Step 2: Unified Smart Organization & Dynamic Hierarchy ──
   const isSmartRoutingEnabled = settings.enableSmartRouting !== false; // enabled by default
-  if (isSmartRoutingEnabled) {
+  const structure = settings.smartRoutingStructure || 'contextual';
+
+  if (isSmartRoutingEnabled && structure !== 'flat') {
     const classification = classifyDownloadDynamic({
       url,
       domain,
@@ -93,49 +105,60 @@ export function resolveDownloadRoute(options: ResolveOptions): SmartRoutingResol
       referrer,
     });
 
-    if (classification && classification.confidence >= 0.25) {
-      const structure = settings.smartRoutingStructure || 'contextual';
-      let targetFolder = classification.suggestedSavePath;
+    const isHighConfidence = Boolean(classification && classification.confidence >= 0.25);
+    const now = new Date();
+    const year = classification?.entities?.year || String(now.getFullYear());
+    const month = classification?.entities?.month || String(now.getMonth() + 1).padStart(2, '0');
 
-      if (structure === 'domain') {
-        const year = classification.entities?.year || String(new Date().getFullYear());
-        targetFolder = domain ? `${domain}/${year}` : year;
-      } else if (structure === 'category') {
+    let targetFolder: string | undefined = undefined;
+
+    if (structure === 'domain') {
+      targetFolder = domain ? `${domain}/${year}` : year;
+    } else if (structure === 'category') {
+      targetFolder = categoryFolder || 'Other';
+    } else if (structure === 'date') {
+      targetFolder = `${year}/${month}`;
+    } else if (structure === 'contextual') {
+      if (isHighConfidence && classification?.suggestedSavePath) {
+        targetFolder = classification.suggestedSavePath;
+      } else {
+        // Unified fallback: unclassified generic files cleanly sort into category folder
         targetFolder = categoryFolder || 'Other';
-      } else if (structure === 'date') {
-        const now = new Date();
-        const year = String(now.getFullYear());
-        const month = String(now.getMonth() + 1).padStart(2, '0');
-        targetFolder = `${year}/${month}`;
       }
-
-      const shouldClean = settings.smartFilenameClean !== false;
-      const targetFilename = (shouldClean && classification.suggestedFilename)
-        ? sanitizeFilename(classification.suggestedFilename)
-        : filename;
-
-      const resolvedPath = buildSavePath(
-        targetFolder,
-        targetFilename,
-        undefined // Do not apply generic category subfolder when dynamic path exists
-      );
-
-      return {
-        savePath: resolvedPath,
-        filename: targetFilename,
-        semantic: classification,
-        smartBadge: {
-          label: classification.shelfLabel,
-          icon: classification.shelfIcon,
-          folder: targetFolder,
-          shelfKey: classification.shelfKey,
-        },
-      };
     }
+
+    const shouldClean = settings.smartFilenameClean !== false;
+    const targetFilename = (shouldClean && isHighConfidence && classification?.suggestedFilename)
+      ? sanitizeFilename(classification.suggestedFilename)
+      : filename;
+
+    const resolvedPath = buildSavePath(
+      settings.defaultSavePath,
+      targetFilename,
+      targetFolder
+    );
+
+    return {
+      savePath: resolvedPath,
+      filename: targetFilename,
+      semantic: (isHighConfidence && classification) ? classification : undefined,
+      smartBadge: isHighConfidence && classification ? {
+        label: classification.shelfLabel,
+        icon: classification.shelfIcon,
+        folder: targetFolder || '',
+        shelfKey: classification.shelfKey,
+      } : (targetFolder ? {
+        label: targetFolder,
+        icon: '📁',
+        folder: targetFolder,
+        shelfKey: targetFolder.toLowerCase(),
+      } : undefined),
+    };
   }
 
-  // ── Step 3: Global Defaults Fallback ──
-  const defaultPath = buildSavePath(settings.defaultSavePath, filename, categoryFolder);
+  // ── Step 3: Global Fallback (Smart Routing Disabled or Flat) ──
+  const fallbackFolder = (isSmartRoutingEnabled && structure === 'category') ? categoryFolder : undefined;
+  const defaultPath = buildSavePath(settings.defaultSavePath, filename, fallbackFolder);
   return {
     savePath: defaultPath,
     filename,

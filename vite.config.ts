@@ -16,7 +16,6 @@ export default defineConfig({
         offscreen: resolve(import.meta.dirname, 'src/offscreen/offscreen.html'),
         'service-worker': resolve(import.meta.dirname, 'src/background/service-worker.ts'),
         'link-interceptor': resolve(import.meta.dirname, 'src/content/link-interceptor.ts'),
-        'stream-sniffer': resolve(import.meta.dirname, 'src/content/stream-sniffer.ts'),
       },
       output: {
         entryFileNames: (chunkInfo) => {
@@ -25,9 +24,6 @@ export default defineConfig({
           }
           if (chunkInfo.name === 'link-interceptor') {
             return 'src/content/link-interceptor.js';
-          }
-          if (chunkInfo.name === 'stream-sniffer') {
-            return 'src/content/stream-sniffer.js';
           }
           if (chunkInfo.name === 'offscreen') {
             return 'src/offscreen/offscreen.js';

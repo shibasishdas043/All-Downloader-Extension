@@ -23,7 +23,7 @@ describe('UpdateManager — Auto Update Checks & Lifecycle', () => {
 
     (globalThis as any).chrome = {
       runtime: {
-        getManifest: vi.fn(() => ({ version: '1.0.9' })),
+        getManifest: vi.fn(() => ({ version: '1.1.0' })),
         requestUpdateCheck: vi.fn(),
         reload: vi.fn(),
         sendMessage: vi.fn(),
@@ -73,7 +73,7 @@ describe('UpdateManager — Auto Update Checks & Lifecycle', () => {
     const checkSpy = vi.spyOn(updateMgr, 'checkForUpdates').mockResolvedValue({
       ok: true,
       status: 'no_update',
-      currentVersion: '1.0.9',
+      currentVersion: '1.1.0',
       message: 'Up to date',
     });
 
@@ -93,7 +93,7 @@ describe('UpdateManager — Auto Update Checks & Lifecycle', () => {
     const res = await updateMgr.checkForUpdates(false);
     expect(res.ok).toBe(true);
     expect(res.status).toBe('no_update');
-    expect(res.currentVersion).toBe('1.0.9');
+    expect(res.currentVersion).toBe('1.1.0');
     expect(res.message).toContain('latest version');
   });
 

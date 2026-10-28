@@ -3,7 +3,7 @@
 //  Wraps chrome.storage.local for download records + settings.
 //  Uses a simple IndexedDB wrapper for large binary chunk caching.
 // ============================================================
-import { STORAGE_KEY, DEFAULT_SETTINGS } from '../shared/constants.js';
+import { STORAGE_KEY, DEFAULT_SETTINGS, PRESERVED_CHUNKS_TTL_MS } from '../shared/constants.js';
 import type { DownloadItem, ExtensionSettings, ExtensionStats } from '../shared/types.js';
 
 // ─────────────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ export async function clearHistory(): Promise<void> {
   const clearedIds: string[] = [];
   for (const [id, dl] of Object.entries(all)) {
     const st = dl.status || (dl as any).state;
-    if (['downloading', 'queued', 'paused', 'connecting', 'merging', 'verifying'].includes(st)) {
+    if (['downloading', 'queued', 'connecting', 'merging', 'verifying'].includes(st) && !dl.isReadyToSave) {
       active[id] = dl;
     } else {
       clearedIds.push(id);
@@ -443,5 +443,65 @@ export async function getChunkCount(downloadId: string): Promise<number> {
       };
       req.onerror = () => reject((req as any).error);
     }
+  });
+}
+
+/**
+ * Scans IndexedDB and purges any chunk records that:
+ * 1. Belong to a downloadId that no longer exists in chrome.storage.local (orphans).
+ * 2. Belong to a completed or cancelled download whose chunks were not cleared.
+ * 3. Have been preserved (isReadyToSave) beyond the 48-hour TTL.
+ */
+export async function pruneOrphanChunks(activeDownloads?: Record<string, DownloadItem>): Promise<{ cleanedCount: number; freedDownloadIds: string[] }> {
+  const db = await openIDB();
+  if (!db) return { cleanedCount: 0, freedDownloadIds: [] };
+
+  const downloads = activeDownloads || await loadDownloads();
+  const validRetainedIds = new Set<string>();
+  const now = Date.now();
+  const MAX_RETENTION_MS = PRESERVED_CHUNKS_TTL_MS || (48 * 60 * 60 * 1000);
+
+  for (const [id, dl] of Object.entries(downloads)) {
+    const st = dl.status || (dl as any).state;
+    if (['downloading', 'queued', 'connecting', 'merging', 'verifying'].includes(st) && !dl.isReadyToSave) {
+      validRetainedIds.add(id);
+    } else if (dl.isReadyToSave) {
+      const preservedAt = (dl as any).preservedAt || dl.completedAt || dl.createdAt || 0;
+      if (now - preservedAt < MAX_RETENTION_MS) {
+        validRetainedIds.add(id);
+      }
+    }
+  }
+
+  return new Promise((resolve) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const store = tx.objectStore(IDB_STORE);
+    const toDeleteKeys: IDBValidKey[] = [];
+    const freedIds = new Set<string>();
+
+    const req = store.openCursor();
+    req.onsuccess = (e) => {
+      const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result;
+      if (cursor) {
+        const val = cursor.value;
+        const dlId = val?.downloadId || (typeof cursor.key === 'string' ? cursor.key.split('_')[0] : null);
+        if (dlId && !validRetainedIds.has(dlId)) {
+          toDeleteKeys.push(cursor.key);
+          freedIds.add(dlId);
+        }
+        cursor.continue();
+      } else {
+        for (const k of toDeleteKeys) {
+          store.delete(k);
+        }
+      }
+    };
+
+    tx.oncomplete = () => {
+      resolve({ cleanedCount: toDeleteKeys.length, freedDownloadIds: Array.from(freedIds) });
+    };
+    tx.onerror = () => {
+      resolve({ cleanedCount: 0, freedDownloadIds: [] });
+    };
   });
 }

@@ -145,10 +145,7 @@ export function updateItem(id: string): void {
 export function populateItem(el: HTMLElement, dl: any): void {
   const ext = getExtension(dl.filename);
   const badgeEl = el.querySelector('.dl-ext-badge') as HTMLElement;
-  if (dl.isHlsStream) {
-    badgeEl.textContent = 'HLS';
-    badgeEl.title = 'HLS Stream Capture';
-  } else if (ext) {
+  if (ext) {
     badgeEl.textContent = ext.slice(0, 4).toUpperCase();
   } else {
     badgeEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`;
@@ -158,15 +155,40 @@ export function populateItem(el: HTMLElement, dl: any): void {
   const smartRow = el.querySelector('.dl-smart-row') as HTMLElement | null;
   if (smartRow) {
     if (dl.smartBadge) {
-      smartRow.innerHTML = `
-        <span class="popup-smart-pill" title="Classified: ${dl.smartBadge.label}">
-          <span class="pill-icon">${dl.smartBadge.icon}</span>
-          <span class="pill-text">${dl.smartBadge.label}</span>
-        </span>
-        <button type="button" class="popup-folder-jump-btn" title="Open Destination Folder: ${dl.smartBadge.folder}">
-          📁 ${dl.smartBadge.folder}
-        </button>
-      `;
+      const label = (dl.smartBadge.label || '').trim();
+      const folder = (dl.smartBadge.folder || '').trim();
+      const icon = dl.smartBadge.icon || '📁';
+      const isDuplicate = !folder || !label ||
+        label.toLowerCase() === folder.toLowerCase() ||
+        ((icon === '📁' || icon === '📂') && folder.toLowerCase().endsWith(label.toLowerCase()));
+
+      if (isDuplicate) {
+        // Single unified file badge without duplicate folder icon or redundant pill
+        smartRow.innerHTML = `
+          <button type="button" class="popup-file-open-btn popup-folder-jump-btn" data-id="${dl.id}" title="Open file: ${dl.filename || folder || label}">
+            <svg class="file-icon-svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <span class="pill-text">${folder || label}</span>
+          </button>
+        `;
+      } else {
+        // Semantic classification and destination file badge
+        smartRow.innerHTML = `
+          <button type="button" class="popup-smart-pill popup-file-open-btn" data-id="${dl.id}" title="Classified: ${label} — Click to open file">
+            <span class="pill-icon">${icon}</span>
+            <span class="pill-text">${label}</span>
+          </button>
+          <button type="button" class="popup-file-open-btn popup-folder-jump-btn" data-id="${dl.id}" title="Open file: ${dl.filename || folder}">
+            <svg class="file-icon-svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+            </svg>
+            <span class="pill-text">${folder}</span>
+          </button>
+        `;
+      }
       smartRow.style.display = 'flex';
     } else {
       smartRow.innerHTML = '';
@@ -204,14 +226,8 @@ export function populateItem(el: HTMLElement, dl: any): void {
     metaHtml = `<span>${size}</span><span class="dl-meta-dot">·</span><span class="dl-status-text error">${failLabel}</span>`;
   } else {
     // Active states (downloading, paused, queued, connecting, merging, verifying)
-    if (dl.isHlsStream && dl.hlsSegmentCount) {
-      const segStr = `Seg ${dl.hlsSegmentsCompleted || 0}/${dl.hlsSegmentCount}`;
-      const sizeStr = received > 0 ? formatBytes(received) : '—';
-      metaHtml = `<span>${sizeStr}</span><span class="dl-meta-dot">·</span><span class="dl-status-text">${segStr}</span>`;
-    } else {
-      const sizeStr = total > 0 ? `${formatBytes(received)} / ${formatBytes(total)}` : formatBytes(received);
-      metaHtml = `<span>${sizeStr}</span>`;
-    }
+    const sizeStr = total > 0 ? `${formatBytes(received)} / ${formatBytes(total)}` : formatBytes(received);
+    metaHtml = `<span>${sizeStr}</span>`;
   }
 
   (el.querySelector('.dl-meta') as HTMLElement).innerHTML = metaHtml;

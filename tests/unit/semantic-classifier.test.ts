@@ -402,5 +402,108 @@ describe('Semantic Classifier Engine', () => {
       });
       expect(resRaw.filename).toBe('blood_test_2026.pdf');
     });
+
+    it('unifies defaultSavePath base folder with contextual, category, and domain hierarchies without conflict', () => {
+      const routingEngine = new RoutingEngine([]);
+
+      // 1. defaultSavePath + contextual semantic hierarchy
+      const resContextual = resolveDownloadRoute({
+        url: 'https://canvas.mit.edu/courses/1802/lecture4_notes.pdf',
+        filename: 'lecture4_notes.pdf',
+        category: 'document',
+        categoryFolder: 'Documents',
+        pageTitle: 'MIT CS101 Lecture 4 - Recursion & Algorithms',
+        settings: {
+          ...DEFAULT_SETTINGS,
+          defaultSavePath: 'All-Downloader',
+          enableRoutingRules: false,
+          enableSmartRouting: true,
+          smartRoutingStructure: 'contextual',
+        },
+        routingEngine,
+      });
+      expect(resContextual.savePath).toBe('All-Downloader/Academics/Notes/MIT/CS101/[Notes]_CS101_MIT_CS101_Lecture_4_Recursion_&_Algorithms.pdf');
+
+      // 2. defaultSavePath + standard category folders
+      const resCategory = resolveDownloadRoute({
+        url: 'https://example.com/video.mp4',
+        filename: 'video.mp4',
+        category: 'video',
+        categoryFolder: 'Videos',
+        settings: {
+          ...DEFAULT_SETTINGS,
+          defaultSavePath: 'MyDownloads',
+          enableRoutingRules: false,
+          enableSmartRouting: true,
+          smartRoutingStructure: 'category',
+        },
+        routingEngine,
+      });
+      expect(resCategory.savePath).toBe('MyDownloads/Videos/video.mp4');
+
+      // 3. defaultSavePath + flat mode (no subdirectories)
+      const resFlat = resolveDownloadRoute({
+        url: 'https://example.com/video.mp4',
+        filename: 'video.mp4',
+        category: 'video',
+        categoryFolder: 'Videos',
+        settings: {
+          ...DEFAULT_SETTINGS,
+          defaultSavePath: 'MyDownloads',
+          enableRoutingRules: false,
+          enableSmartRouting: true,
+          smartRoutingStructure: 'flat',
+        },
+        routingEngine,
+      });
+      expect(resFlat.savePath).toBe('MyDownloads/video.mp4');
+
+      // 4. Low-confidence file falls back to categoryFolder when organizeByCategoryFolders is true
+      const resFallback = resolveDownloadRoute({
+        url: 'https://random-cdn.xyz/data.bin',
+        filename: 'data.bin',
+        category: 'other',
+        categoryFolder: 'Other',
+        settings: {
+          ...DEFAULT_SETTINGS,
+          defaultSavePath: 'All-Downloader',
+          enableRoutingRules: false,
+          enableSmartRouting: true,
+          smartRoutingStructure: 'contextual',
+          organizeByCategoryFolders: true,
+        },
+        routingEngine,
+      });
+      expect(resFallback.savePath).toBe('All-Downloader/Other/data.bin');
+
+      // 5. User custom rule takes precedence over smart routing
+      const customRuleEngine = new RoutingEngine([{
+        id: 'rule-1',
+        name: 'Force ISOs to Linux',
+        enabled: true,
+        priority: 1,
+        conditions: [{ field: 'ext', op: 'equals', value: 'iso' }],
+        action: 'route_to',
+        savePath: 'Linux-Distros',
+      }]);
+      const resRule = resolveDownloadRoute({
+        url: 'https://ubuntu.com/download/ubuntu-26.04.iso',
+        filename: 'ubuntu-26.04.iso',
+        category: 'archive',
+        categoryFolder: 'Archives',
+        pageTitle: 'Download Ubuntu 26.04 LTS',
+        settings: {
+          ...DEFAULT_SETTINGS,
+          defaultSavePath: 'All-Downloader',
+          enableRoutingRules: true,
+          routingRules: customRuleEngine.rules,
+          enableSmartRouting: true,
+          smartRoutingStructure: 'contextual',
+        },
+        routingEngine: customRuleEngine,
+      });
+      expect(resRule.matchedRuleId).toBe('rule-1');
+      expect(resRule.savePath).toBe('All-Downloader/Linux-Distros/ubuntu-26.04.iso');
+    });
   });
 });

@@ -72,6 +72,73 @@ export async function showInFolder(id: string): Promise<void> {
   await sendMsg({ type: MSG.SHOW_IN_FOLDER, id });
 }
 
+export async function openFile(id: string): Promise<void> {
+  const dl = downloads[id];
+  if (!dl) return;
+
+  const tryOpenChromeId = (chromeId: number): boolean => {
+    try {
+      chrome.downloads.open(chromeId);
+      if (chrome.runtime.lastError) {
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // 1. Direct synchronous open if chromeDownloadId is already known
+  if (dl.chromeDownloadId && typeof chrome !== 'undefined' && typeof chrome.downloads?.open === 'function') {
+    if (tryOpenChromeId(dl.chromeDownloadId)) {
+      return;
+    }
+  }
+
+  // 2. Resolve download directly in the popup extension page within active user gesture
+  if (typeof chrome !== 'undefined' && typeof chrome.downloads?.search === 'function') {
+    try {
+      const filename = dl.filename || dl.savePath || '';
+      const safeBase = filename.split(/[\\/]/).pop() || filename;
+
+      chrome.downloads.search(
+        { limit: 30, orderBy: ['-startTime'] },
+        (results) => {
+          if (!results || results.length === 0) {
+            showInFolder(id);
+            return;
+          }
+
+          const match = results.find(r =>
+            (dl.chromeDownloadId && r.id === dl.chromeDownloadId) ||
+            (r.filename && r.filename.endsWith(safeBase)) ||
+            (r.url && (r.url === dl.url || r.finalUrl === dl.url))
+          ) || results[0];
+
+          if (match) {
+            dl.chromeDownloadId = match.id;
+            try {
+              chrome.downloads.open(match.id);
+              if (chrome.runtime.lastError) {
+                chrome.downloads.show(match.id);
+              }
+            } catch {
+              chrome.downloads.show(match.id);
+            }
+          } else {
+            showInFolder(id);
+          }
+        }
+      );
+      return;
+    } catch {
+      // Fall through to show in folder
+    }
+  }
+
+  showInFolder(id);
+}
+
 export async function pauseAll(): Promise<void> {
   const active = getAllDownloads().filter(d => (d.status || d.state) === DOWNLOAD_STATE.DOWNLOADING);
   for (const dl of active) await pauseDl(dl.id);

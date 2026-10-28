@@ -98,7 +98,7 @@ describe('Direct-to-Disk Stream Saver', () => {
     expect(storage.clearChunks).not.toHaveBeenCalled();
   });
 
-  test('streamChunksToDisk completes successfully even if Windows delays atomic swap rename on close', async () => {
+  test('streamChunksToDisk preserves chunks and returns error if writable.close fails on atomic swap rename', async () => {
     const chunk0 = new Uint8Array([1, 2, 3, 4]);
     vi.mocked(storage.loadChunk).mockResolvedValue(chunk0.buffer);
 
@@ -110,22 +110,24 @@ describe('Direct-to-Disk Stream Saver', () => {
     const mockWritable = {
       write: vi.fn(),
       close: vi.fn().mockRejectedValue(invalidStateErr),
-      abort: vi.fn(),
+      abort: vi.fn().mockResolvedValue(undefined),
     };
 
     const mockFileHandle = {
       name: 'Windows10.iso',
       createWritable: vi.fn().mockResolvedValue(mockWritable),
-      getFile: vi.fn().mockResolvedValue({ size: 4 }),
+      getFile: vi.fn().mockResolvedValue({ size: 0 }),
     };
 
     (globalThis as any).window.showSaveFilePicker = vi.fn().mockResolvedValue(mockFileHandle);
 
     const res = await streamChunksToDisk('dl-locked', 'Windows10.iso', 1, 4);
 
-    expect(res.success).toBe(true);
-    expect(res.bytesWritten).toBe(4);
-    expect((globalThis as any).chrome.runtime.sendMessage).toHaveBeenCalled();
+    expect(res.success).toBe(false);
+    expect(res.error).toBeDefined();
+    expect(res.error).toContain('Windows locked the destination file');
+    expect(storage.clearChunks).not.toHaveBeenCalled();
+    expect((globalThis as any).chrome.runtime.sendMessage).not.toHaveBeenCalled();
   });
 
   test('streamChunksToDisk aborts stream safely and preserves chunks if a chunk fails to load', async () => {

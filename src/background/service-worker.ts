@@ -3,7 +3,7 @@
 //  Entry point for extension background lifecycle & events.
 // ============================================================
 import { DEFAULT_SETTINGS } from '../shared/constants.js';
-import { loadSettings } from './storage.js';
+import { loadSettings, pruneOrphanChunks } from './storage.js';
 import type { ExtensionSettings } from '../shared/types.js';
 import {
   DownloadCoordinator,
@@ -14,7 +14,6 @@ import {
   updateBadge,
   keepAliveGuard,
   updateManager,
-  mediaStreamRegistry,
 } from './services/index.js';
 import { restoreDefaultIcon } from './icon-animator.js';
 
@@ -27,12 +26,12 @@ export async function ensureInitialized(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       try {
-        mediaStreamRegistry.initWebRequestSniffer();
         const loaded = await loadSettings();
         settings = loaded;
         coordinator.updateSettings(loaded);
         updateManager.init(coordinator);
         await coordinator.restoreInProgressDownloads();
+        await pruneOrphanChunks();
       } catch (err) {
         console.error('[ADL] Failed to initialize settings & downloads on wakeup:', err);
       }

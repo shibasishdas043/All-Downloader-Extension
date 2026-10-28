@@ -197,14 +197,14 @@ export function handleSWMessage(msg: any): void {
       for (const id of Object.keys(state.downloads)) {
         const dl = state.downloads[id];
         const st = dl.status || (dl as any).state;
-        if (![
+        const isActive = [
           DOWNLOAD_STATE.DOWNLOADING,
           DOWNLOAD_STATE.QUEUED,
           DOWNLOAD_STATE.CONNECTING,
-          DOWNLOAD_STATE.PAUSED,
           DOWNLOAD_STATE.MERGING,
           DOWNLOAD_STATE.VERIFYING
-        ].includes(st as any)) {
+        ].includes(st as any) && !dl.isReadyToSave;
+        if (!isActive) {
           delete state.downloads[id];
           state.selected.delete(id);
           state.expandedChunkIds.delete(id);
@@ -251,6 +251,21 @@ async function init(): Promise<void> {
     });
   }
   if (dlRes?.queueOrder) state.latestQueueOrder = dlRes.queueOrder;
+
+  if (typeof chrome !== 'undefined' && chrome.downloads?.search) {
+    chrome.downloads.search({ limit: 100, orderBy: ['-startTime'] }, (items) => {
+      if (!items) return;
+      for (const id in state.downloads) {
+        const dl = state.downloads[id];
+        if (!dl.chromeDownloadId) {
+          const filename = dl.filename || dl.savePath || '';
+          const safeBase = filename.split(/[\\/]/).pop() || filename;
+          const match = items.find(it => (it.filename && it.filename.endsWith(safeBase)) || (it.url && it.url === dl.url));
+          if (match) dl.chromeDownloadId = match.id;
+        }
+      }
+    });
+  }
 
   // Listen for live updates from background service worker
   chrome.runtime.onMessage.addListener(handleSWMessage);

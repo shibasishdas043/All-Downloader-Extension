@@ -99,6 +99,7 @@ export interface DownloadItem {
   scheduledTime?: number | null;
   scheduledAt?: number | null;
   isReadyToSave?: boolean;
+  preservedAt?: number | null;
   chunkCount?: number;
   chunked?: boolean;
   total?: number;
@@ -106,11 +107,6 @@ export interface DownloadItem {
   percent?: number;
   referrer?: string;
   autoReconnecting?: boolean;
-  isHlsStream?: boolean;
-  hlsSegmentCount?: number;
-  hlsSegmentsCompleted?: number;
-  hlsPlaylistUrl?: string;
-  hlsTotalDuration?: number;
   pageTitle?: string;
   smartCategory?: string;
   smartFolder?: string;
@@ -144,12 +140,10 @@ export interface ExtensionSettings {
   enableRoutingRules: boolean;
   /** Ordered list of routing rules (sorted by priority ascending) */
   routingRules: RoutingRule[];
-  /** Master on/off toggle for Hover Grab floating action button on web media */
-  enableHoverGrab?: boolean;
   /** Master on/off toggle for Contextual Intent Smart Routing (default: true) */
   enableSmartRouting?: boolean;
   /** Dynamic organization hierarchy mode */
-  smartRoutingStructure?: 'contextual' | 'domain' | 'category' | 'date';
+  smartRoutingStructure?: 'contextual' | 'domain' | 'category' | 'date' | 'flat';
   /** Whether to normalize cryptic server filenames using detected page metadata */
   smartFilenameClean?: boolean;
   /** Master on/off toggle for Universal Right-Click & Copy Protection Unblocking (default: true) */
@@ -174,19 +168,6 @@ export interface UpdateStatus {
   hasActiveDownloads: boolean;
 }
 
-export interface SniffedMediaItem {
-  url: string;
-  filename: string;
-  title: string;
-  type: 'image' | 'video' | 'audio' | 'document' | 'link';
-  size?: number | null;
-  ext?: string;
-  width?: number;
-  height?: number;
-  resolution?: string;
-  origin?: string;
-  referrer?: string;
-}
 
 export interface ExtensionStats {
   totalDownloadedBytes: number;

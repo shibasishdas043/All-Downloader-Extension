@@ -4,6 +4,7 @@
 import { describe, test, expect, beforeEach, vi } from 'vitest';
 import { DEFAULT_SETTINGS, DOWNLOAD_STATE } from '../../src/shared/constants.ts';
 import { DownloadCoordinator } from '../../src/background/services/download-coordinator.ts';
+import { saveDownloads } from '../../src/background/storage.ts';
 import type { ExtensionSettings } from '../../src/shared/types.ts';
 
 describe('Dynamic, Format-Agnostic Interception for All Downloads', () => {
@@ -257,6 +258,75 @@ describe('Zero-Data-Loss Chunk Resilience & Actual Disk Path Persistence', () =>
         savePath: 'D:\\downloads\\custom_folder\\my-archive.zip',
         filename: 'my-archive.zip',
       })
+    );
+  });
+
+  test('discards chunks and marks CANCELLED when preserveChunksOnCancel is false', async () => {
+    coordinator.updateSettings({ ...DEFAULT_SETTINGS, preserveChunksOnCancel: false });
+    coordinator.pendingChromeDownloads.set(999, {
+      id: 'dl_no_preserve',
+      blobUrl: 'blob:test/789',
+      safeFilename: 'test.zip',
+      fileSize: 100_000,
+      targetSavePath: 'test.zip',
+    });
+
+    const updateStateSpy = vi.spyOn(coordinator, 'updateState').mockResolvedValue({} as any);
+
+    await coordinator.handleChromeDownloadChange({
+      id: 999,
+      state: { current: 'interrupted', previous: 'in_progress' },
+      error: { current: 'USER_CANCELED', previous: undefined },
+    } as any);
+
+    expect(updateStateSpy).toHaveBeenCalledWith(
+      'dl_no_preserve',
+      DOWNLOAD_STATE.CANCELLED,
+      expect.objectContaining({
+        isReadyToSave: false,
+        error: 'Save cancelled by user. Chunks discarded.',
+      })
+    );
+  });
+
+  test('evicts expired isReadyToSave downloads older than 48 hours in restoreInProgressDownloads', async () => {
+    const expiredTimestamp = Date.now() - (49 * 60 * 60 * 1000); // 49 hours ago
+    const expiredDownload: any = {
+      id: 'dl_expired',
+      status: DOWNLOAD_STATE.PAUSED,
+      isReadyToSave: true,
+      preservedAt: expiredTimestamp,
+    };
+    const freshTimestamp = Date.now() - (2 * 60 * 60 * 1000); // 2 hours ago
+    const freshDownload: any = {
+      id: 'dl_fresh',
+      status: DOWNLOAD_STATE.PAUSED,
+      isReadyToSave: true,
+      preservedAt: freshTimestamp,
+    };
+
+    await saveDownloads({
+      dl_expired: expiredDownload,
+      dl_fresh: freshDownload,
+    });
+
+    const updateStateSpy = vi.spyOn(coordinator, 'updateState').mockResolvedValue({} as any);
+
+    await coordinator.restoreInProgressDownloads();
+
+    expect(updateStateSpy).toHaveBeenCalledWith(
+      'dl_expired',
+      DOWNLOAD_STATE.CANCELLED,
+      expect.objectContaining({
+        isReadyToSave: false,
+        errorMessage: expect.stringContaining('expired after 48 hours'),
+      })
+    );
+
+    expect(updateStateSpy).not.toHaveBeenCalledWith(
+      'dl_fresh',
+      DOWNLOAD_STATE.CANCELLED,
+      expect.anything()
     );
   });
 });

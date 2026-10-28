@@ -48,21 +48,20 @@ export function sanitizeFolderSegment(seg: string): string {
 export function buildSavePath(subFolder: string, filename: string, categoryFolder?: string): string {
   const parts: string[] = [];
 
-  if (subFolder && typeof subFolder === 'string' && subFolder.trim()) {
-    const cleanFolder = subFolder
+  const addPath = (raw?: string) => {
+    if (!raw || typeof raw !== 'string' || !raw.trim()) return;
+    const segments = raw
       .replace(/\\/g, '/')
       .replace(/^\/+/, '')
       .replace(/\/+$/, '')
       .split('/')
       .map(seg => sanitizeFolderSegment(seg))
       .filter(Boolean);
-    parts.push(...cleanFolder);
-  }
+    parts.push(...segments);
+  };
 
-  if (categoryFolder && typeof categoryFolder === 'string' && categoryFolder.trim()) {
-    const cleanCat = sanitizeFolderSegment(categoryFolder.trim());
-    if (cleanCat) parts.push(cleanCat);
-  }
+  addPath(subFolder);
+  addPath(categoryFolder);
 
   const cleanFilename = sanitizeFilename(filename);
   return parts.length > 0 ? `${parts.join('/')}/${cleanFilename}` : cleanFilename;

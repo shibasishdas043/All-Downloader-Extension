@@ -215,16 +215,33 @@ export function buildRow(dl: any, index = 0): HTMLTableRowElement {
         <div class="file-meta-wrap">
           <div class="file-name-row">
             <span class="file-name" title="${escHtml(dl.filename)}">${escHtml(truncateName(dl.filename, 36))}</span>
-            ${dl.smartBadge ? `
-              <span class="smart-badge-pill" title="Classified: ${escHtml(dl.smartBadge.label)}">
-                <span class="smart-icon">${dl.smartBadge.icon}</span>
-                <span class="smart-label">${escHtml(dl.smartBadge.label)}</span>
-              </span>
-              <button type="button" class="smart-folder-link" data-id="${dl.id}" title="Click to open folder: ${escHtml(dl.smartBadge.folder)}">
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-                <span>${escHtml(dl.smartBadge.folder)}</span>
-              </button>
-            ` : ''}
+            ${dl.smartBadge ? (() => {
+              const label = (dl.smartBadge.label || '').trim();
+              const folder = (dl.smartBadge.folder || '').trim();
+              const icon = dl.smartBadge.icon || '📁';
+              const isDuplicate = !folder || !label ||
+                label.toLowerCase() === folder.toLowerCase() ||
+                ((icon === '📁' || icon === '📂') && folder.toLowerCase().endsWith(label.toLowerCase()));
+
+              if (isDuplicate) {
+                return `
+                  <button type="button" class="smart-folder-link smart-file-link" data-id="${dl.id}" title="Click to open file: ${escHtml(dl.filename || folder || label)}">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span>${escHtml(folder || label)}</span>
+                  </button>
+                `;
+              }
+              return `
+                <button type="button" class="smart-badge-pill smart-file-link" data-id="${dl.id}" title="Classified: ${escHtml(label)} — Click to open file">
+                  <span class="smart-icon">${icon}</span>
+                  <span class="smart-label">${escHtml(label)}</span>
+                </button>
+                <button type="button" class="smart-folder-link smart-file-link" data-id="${dl.id}" title="Click to open file: ${escHtml(dl.filename || folder)}">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <span>${escHtml(folder)}</span>
+                </button>
+              `;
+            })() : ''}
           </div>
           <span class="file-url" title="${escHtml(dl.url)}">${escHtml(dl.url)}</span>
         </div>
@@ -505,6 +522,73 @@ export async function act(type: string, id: string): Promise<void> {
   await sendMsg({ type, id });
 }
 
+export async function openDownloadedFile(id: string): Promise<void> {
+  const dl = state.downloads[id];
+  if (!dl) return;
+
+  const tryOpenChromeId = (chromeId: number): boolean => {
+    try {
+      chrome.downloads.open(chromeId);
+      if (chrome.runtime.lastError) {
+        return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // 1. Direct synchronous open if chromeDownloadId is already known
+  if (dl.chromeDownloadId && typeof chrome !== 'undefined' && typeof chrome.downloads?.open === 'function') {
+    if (tryOpenChromeId(dl.chromeDownloadId)) {
+      return;
+    }
+  }
+
+  // 2. Resolve download directly in the dashboard extension page within active user gesture
+  if (typeof chrome !== 'undefined' && typeof chrome.downloads?.search === 'function') {
+    try {
+      const filename = dl.filename || dl.savePath || '';
+      const safeBase = filename.split(/[\\/]/).pop() || filename;
+
+      chrome.downloads.search(
+        { limit: 30, orderBy: ['-startTime'] },
+        (results) => {
+          if (!results || results.length === 0) {
+            act(MSG.SHOW_IN_FOLDER, id);
+            return;
+          }
+
+          const match = results.find(r =>
+            (dl.chromeDownloadId && r.id === dl.chromeDownloadId) ||
+            (r.filename && r.filename.endsWith(safeBase)) ||
+            (r.url && (r.url === dl.url || r.finalUrl === dl.url))
+          ) || results[0];
+
+          if (match) {
+            dl.chromeDownloadId = match.id;
+            try {
+              chrome.downloads.open(match.id);
+              if (chrome.runtime.lastError) {
+                chrome.downloads.show(match.id);
+              }
+            } catch {
+              chrome.downloads.show(match.id);
+            }
+          } else {
+            act(MSG.SHOW_IN_FOLDER, id);
+          }
+        }
+      );
+      return;
+    } catch {
+      // Fall through to show in folder
+    }
+  }
+
+  await act(MSG.SHOW_IN_FOLDER, id);
+}
+
 export function bindTableDelegation(): void {
   const tbody = document.getElementById('dl-tbody');
   if (!tbody || (tbody as any).dataset.delegated) return;
@@ -513,13 +597,25 @@ export function bindTableDelegation(): void {
   tbody.addEventListener('click', async (e) => {
     const target = e.target as HTMLElement;
 
-    // 0. Smart folder jump button click (Zero-click OS Explorer open)
-    const folderJump = target.closest('.smart-folder-link') as HTMLElement | null;
-    if (folderJump) {
+    // 0. Smart file open button click (Directly opens downloaded file)
+    const fileOpen = target.closest('.smart-folder-link, .smart-file-link, .smart-badge-pill') as HTMLElement | null;
+    if (fileOpen) {
       e.stopPropagation();
-      const id = folderJump.dataset.id;
-      if (id) await act(MSG.SHOW_IN_FOLDER, id);
+      const id = fileOpen.dataset.id;
+      if (id) await openDownloadedFile(id);
       return;
+    }
+
+    // Direct file name click on completed download: opens the file!
+    const fileNameEl = target.closest('.file-name') as HTMLElement | null;
+    if (fileNameEl) {
+      const tr = fileNameEl.closest('tr') as HTMLElement | null;
+      const id = tr?.dataset.id;
+      if (id && state.downloads[id] && ((state.downloads[id].status || state.downloads[id].state) === DOWNLOAD_STATE.COMPLETED)) {
+        e.stopPropagation();
+        await openDownloadedFile(id);
+        return;
+      }
     }
 
     // 1. Action button click
